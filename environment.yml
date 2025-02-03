@@ -1,4 +1,4 @@
-name: mtm_test
+name: mtm
 channels:
   - pytorch
   - defaults
@@ -279,4 +279,4 @@ dependencies:
       - yapf==0.43.0
       - yarl==1.18.3
       - zipp==3.21.0
-prefix: /data/home/umang/miniconda3/envs/mtm_test
+prefix: /data/home/umang/miniconda3/envs/mtm
