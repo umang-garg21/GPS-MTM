@@ -3,6 +3,7 @@
 This is the official code base for the paper `GPS Masked Trajectory Models for Human Life Travel Pattern Learning"`
 
 ## Instructions
+Run ```conda env create -f environment.yml```
 
 # Running The MTM code
 Example commands can be found in `train_examples.sh` Run the last command in this file.
@@ -48,5 +49,4 @@ This project builds on top of or utilizes the following third party dependencies
  * [vikashplus/robohive](https://github.com/brentyi/tyro): Provides the Adroit environment
  * [aravindr93/mjrl](https://github.com/aravindr93/mjrl): Code for training the policy for generating data on Adroit
  * [brentyi/tyro](https://github.com/brentyi/tyro): Argument parsing and configuration
-# GPS-MTM
 # GPS-MTM
