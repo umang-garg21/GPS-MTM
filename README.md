@@ -1,54 +1,13 @@
 # Masked Trajectory Models
 
-This is the official code base for the paper `Masked Trajectory Models for Prediction, Representation, and Control`. Checkout our [website](https://wuphilipp.github.io/mtm/)!
-
-If you find our work useful, consider citing:
-```
-@inproceedings{wu2023mtm,
-  author = {Wu, Philipp and Majumdar, Arjun and Stone, Kevin and Lin, Yixin and Mordatch, Igor and Abbeel, Pieter and Rajeswaran, Aravind},
-  title = {Masked Trajectory Models for Prediction, Representation, and Control},
-  booktitle = {International Conference on Machine Learning},
-  year = {2023},
-}
-```
+This is the official code base for the paper `GPS Masked Trajectory Models for Human Life Travel Pattern Learning"`
 
 ## Instructions
 
-### Install python packages from scratch
-If you want to make an env from scratch
-
-Make a new conda env
-```
-conda create -n mtm python=3.10
-conda activate mtm
-```
-
-Install torch with gpu
-https://pytorch.org/get-started/locally/
-
-
-Run these commands to install all dependencies
-```
-conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 -c pytorch
-pip install -e .
-```
-
-Optionally install dev packages.
-```
-pip install -r requirements_dev.txt
-```
-
-### Adroit Experiments [Optional]
-Please refer to the [Adroit Instructions](./AdroitSetup.md) for preparing the datasets and environment.
-
 # Running The MTM code
-Example commands can be found in `train_examples.sh`
-An example notebook is located at `example_train_sinusoid.ipynb` which shows a simple example of how MTM can be used for trajectory prediction on a sinusoid dataset.
+Example commands can be found in `train_examples.sh` Run the last command in this file.
 
-The main code is located in the `mtm` folder. Here is how you can run some of the experiments.
- * Simple sinusoidal test data `python research/mtm/train.py +exp_mtm=sinusoid_cont`
- * D4RL `python research/mtm/train.py +exp_mtm=d4rl_cont`
- * Adroit `python research/mtm/train.py +exp_mtm=adroit_cont` (needs Adroit setup)
+The main code is located in the `mtm` folder. 
 
 ### Configuring MTM
  * The config file for mtm is located at `research/mtm/config.yaml`
@@ -71,7 +30,7 @@ pre-commit install
 If you want to make a commit without using the pre-commit hook, you can commit with the -n flag (ie. `git commit -n ...`).
 
 ### Datasets
- * all dataset code is located in the `research/mtm/datasets` folder. All datasets have to do is return a pytorch dataset that outputs a dict (named set of trajectories).
+ * all dataset code is located in the `/Trajectory_dataset/anomaly_traj_data` folder. All datasets have to do is return a pytorch dataset that outputs a dict (named set of trajectories).
  * a dataset should follow the `DatasetProtocol` specified in `research/mtm/datasets/base.py`.
  * each dataset should also have a corresponding `get_datasets` function where all the dataset specific construction logic happens. This function can take anything as input (as specified in the corresponding `yaml` config) and output the train and val torch `Dataset`.
 
