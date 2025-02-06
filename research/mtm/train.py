@@ -675,7 +675,7 @@ def train_one_batch(
     if loss_keys is None:
         loss_keys = model_without_ddp.config.loss_keys
 
-    loss, losses_dict, total_masked_loss, masked_c_losses = MTM.forward_loss(
+    loss, losses_dict, total_masked_loss, masked_c_losses, masked_c_loss_per_feature = MTM.forward_loss(
         encoded_batch,
         predicted_trajectories,
         masks,
@@ -694,6 +694,11 @@ def train_one_batch(
     for k, v in masked_c_losses.items():
         log_dict[f"train/masked_loss_{k}"] = v.item()
 
+    # for all keys in masked_c_loss_per_feature, log the loss
+    #for k, v in masked_c_loss_per_feature.items():
+    #    for i, loss in enumerate(v):
+    #        log_dict[f"train/masked_loss_{k}_{i}"] = loss.item()
+
     # backprop
     model.zero_grad(set_to_none=True)
     
@@ -708,15 +713,16 @@ def train_one_batch(
         mse_loss = 0
         predictions = tokenizer_manager.decode(predicted_trajectories, attention_masks=attention_masks)
         for k, v in predictions.items():
-            _mse = F.mse_loss(
-                v[attention_masks == 1].to(torch.float32),  
-                batch[k][attention_masks == 1].to(torch.float32),
-            )/ (attention_masks.sum()).item()
+            for f in range(v.shape[2]):
+                _mse = F.mse_loss(
+                    v[attention_masks == 1][:, f].to(torch.float32),  
+                    batch[k][attention_masks == 1][:, f].to(torch.float32),
+                )/ (attention_masks.sum()).item()
+                log_dict[f"train/mse_{k}_{f}"] = _mse
+                mse_loss += _mse
+        log_dict["train/mse_sum"] = mse_loss
 
-            log_dict[f"train/mse_{k}"] = _mse
-            mse_loss += _mse
 
-        #log_dict["train/mse_sum"] = mse_loss
     return log_dict
 
 

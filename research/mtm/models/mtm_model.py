@@ -306,6 +306,7 @@ class MTM(nn.Module):
         losses = {}
         masked_losses = {}
         masked_c_losses = {}
+        masked_c_loss_per_feature_k = {}
 
         for key in targets.keys():
             target = targets[key]
@@ -337,9 +338,11 @@ class MTM(nn.Module):
             # Track masked loss to know how mask tokens are performing.
             if mask.sum() == 0:
                 masked_c_loss = torch.tensor(0.0).to(raw_loss.device)
-                # solve  Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
-                #RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+
             else:
+                masked_c_loss_per_feature_k[key]=(
+                    (raw_loss * mask[:, :, :, None]).sum(dim=(1, 2)) / mask.sum()
+                ).mean(dim=0)
                 masked_c_loss = (
                     (raw_loss * mask[:, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
                 ).mean()
@@ -355,7 +358,7 @@ class MTM(nn.Module):
             total_loss = torch.sum(torch.stack([losses[key] for key in loss_keys]))
             total_masked_c_loss = torch.sum(torch.stack([masked_c_losses[key] for key in loss_keys]))
 
-        return total_loss, losses, total_masked_c_loss, masked_c_losses
+        return total_loss, losses, total_masked_c_loss, masked_c_losses, masked_c_loss_per_feature_k
     
     def _index(self, x, use_mask):
         assert len(use_mask.shape) == 1
