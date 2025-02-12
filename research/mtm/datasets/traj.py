@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 
 from research.exorl.replay_buffer import episode_len, load_episode
 from research.mtm.datasets.base import DatasetProtocol, DataStatistics
+from research.mtm.tokenizers.base import TokenizerManager
 
 class OfflineReplayBuffer(Dataset, DatasetProtocol):
     def __init__(
@@ -152,18 +153,33 @@ class OfflineReplayBuffer(Dataset, DatasetProtocol):
             "attention_mask": content["attention_mask"].astype(np.float32),
         }
 
-    def eval_logs(self, model: Callable) -> Dict[str, Any]:
+    def eval_logs(self, model: Callable, tokenizer_manager: TokenizerManager) -> Dict[str, Any]:
         num_samples = 10
         eval_logs = {}
+        device = next(model.parameters()).device
+        open_loop_mse = 0
 
         for _ in range(num_samples):
-            batch = {
-                "states": torch.tensor(self.sample()["states"]).unsqueeze(0),
-                "actions": torch.tensor(self.sample()["actions"]).unsqueeze(0),
-            }
-            predicted_trajectories = model(batch)
-            mse = torch.mean((predicted_trajectories["states"] - batch["states"]) ** 2)
-            eval_logs["mse"] = mse.item()
+            batch = self.sample()
+            batch_torch = {k: torch.tensor(v).unsqueeze(0).to(device) for k, v in batch.items()} # what does attention_mask here?
+            attention_masks = batch_torch.pop("attention_mask", None)
+            encoded_batch = tokenizer_manager.encode(batch_torch, attention_masks=attention_masks)
+
+            # hardcode first permuation of masked trajectories. then modify.
+            state_mask = torch.zeros(batch["states"].shape[0])
+            state_mask[:self._traj_length-1] = 1
+            state_mask[-self._traj_length-1:] = 1 # BUG: what is this?? RCBC?
+            action_mask = torch.zeros(batch["actions"].shape[0])
+            masks = {"states": state_mask, "actions": action_mask}
+            masks_torch = {k: v.to(device).unsqueeze(1) for k, v in masks.items()}
+
+            predicted_trajectories = model(encoded_batch, masks_torch, attention_masks=attention_masks) # BUG: forward pass is incomplete, error if aattention masks isn't passed in @umang
+            decoded_trajectories = tokenizer_manager.decode(predicted_trajectories)
+
+            mse = torch.mean((batch_torch["states"] - decoded_trajectories["states"]) ** 2)
+            open_loop_mse += mse.item()
+
+        eval_logs["mse"] = open_loop_mse / num_samples
 
         return eval_logs
 

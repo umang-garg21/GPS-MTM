@@ -51,10 +51,11 @@ def make_plots_with_masks(
     eval_logs = {}
     for masks, prefix in zip(masks_list, prefixs):
         eval_name = f"{prefix}_eval"
-
+        
+        attention_masks = trajectories["attention_mask"].clone()
         encoded_trajectories = tokenizer_manager.encode(trajectories)
         decoded_gt_trajectories = tokenizer_manager.decode(encoded_trajectories)
-        predictions = predict_fn(encoded_trajectories, masks)
+        predictions = predict_fn(encoded_trajectories, masks, attention_masks=attention_masks)
         decoded_trajs = tokenizer_manager.decode(predictions)
 
         mse_loss = 0

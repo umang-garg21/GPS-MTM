@@ -70,7 +70,7 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 current_step = 0
 
 
-def log_metrics(metrics, step):
+def log_metrics(wandb_logger, metrics, step):
     global current_step
     if step <= current_step:
         step = current_step + 1  # Ensure the step is monotonically increasing
@@ -588,10 +588,10 @@ def evaluate(
     vis_batch: Dict[str, torch.Tensor],
     masks: Dict[str, torch.Tensor],
 ) -> Dict[str, Any]:
-    attention_masks = val_batch.pop("attention_masks", None)
+    attention_masks = val_batch.pop("attention_mask", None)
     encoded_batch = tokenizer_manager.encode(val_batch, attention_masks=attention_masks)
 
-    predicted_trajectories = model(encoded_batch, masks, attention_mask=attention_masks)
+    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
 
     model_without_ddp = model.module if hasattr(model, "module") else model
     (
@@ -599,6 +599,7 @@ def evaluate(
         losses_dict,
         masked_losses,
         masked_c_losses,
+        masked_c_loss_per_feature_k,
     ) = MTM.forward_loss(
         encoded_batch,
         predicted_trajectories,
@@ -613,10 +614,13 @@ def evaluate(
     log_dict = {"val/val_loss": loss.item()}
     for k, v in losses_dict.items():
         log_dict[f"val/full_loss_{k}"] = v.item()
-    for k, v in masked_losses.items():
-        log_dict[f"val/masked_loss_{k}"] = v.item()
+    # for k, v in masked_losses.items():
+    #     log_dict[f"val/masked_loss_{k}"] = v.item() # not using this one?
     for k, v in masked_c_losses.items():
         log_dict[f"val/masked_c_loss_{k}"] = v.item()
+    for k, v in masked_c_loss_per_feature_k.items():
+        for i, loss in enumerate(v):
+            log_dict[f"val/masked_c_loss_{k}_feat_{i}"] = loss.item()
 
     mse_loss = 0
     predictions = tokenizer_manager.decode(predicted_trajectories)
@@ -668,7 +672,7 @@ def train_one_batch(
     encoded_batch = tokenizer_manager.encode(batch_clone, attention_masks=attention_masks)
     _= masks.pop("attention_mask", None)
     # Forward pass with attention masks
-    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
+    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks) # BUG: when masks is all zeros
 
     # compute the loss
     model_without_ddp = model.module if hasattr(model, "module") else model
@@ -1188,7 +1192,7 @@ def _main(hydra_cfg):
                     max_log[f"max_{k}"] = eval_max[k]
 
             log_dict.update(max_log)
-            log_metrics({f"p_{k}": v for k, v in max_log.items()}, step=step)
+            log_metrics(wandb_logger, {f"p_{k}": v for k, v in max_log.items()}, step=step)
             # wandb_logger.log(
             #    {f"p_{k}": v for k, v in max_log.items()},
             #    step=0,  # use step 0 to log to the same bar plot
