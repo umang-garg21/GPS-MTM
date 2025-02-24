@@ -31,7 +31,8 @@ from omegaconf import DictConfig, OmegaConf
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.dataloader import DataLoader
 
-sys.path.append("/data/home/umang/Trajectory_project/mtm")
+# sys.path.append("/data/home/umang/Trajectory_project/mtm")
+sys.path.append("/data/home/kyle/repos/gps_mtm")
 import sys
 
 from research.logger import WandBLogger, WandBLoggerConfig, logger, stopwatch
@@ -63,7 +64,8 @@ from research.mtm.utils import (
     set_seed_everywhere,
 )
 
-sys.path.append("/data/home/umang/Trajectory_project/mtm/research/exorl")
+# sys.path.append("/data/home/umang/Trajectory_project/mtm/research/exorl")
+sys.path.append("/data/home/kyle/repos/gps_mtm/research/exorl")
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 # Initialize the current step
@@ -678,10 +680,16 @@ def train_one_batch(
     model_without_ddp = model.module if hasattr(model, "module") else model
     if loss_keys is None:
         loss_keys = model_without_ddp.config.loss_keys
+        
+    decoded_batch = tokenizer_manager.decode(encoded_batch)
+    decoded_predictions = tokenizer_manager.decode(predicted_trajectories)
+    # BUG: tokenizers remove dim2
+    decoded_batch = {k: v.unsqueeze(2) for k, v in decoded_batch.items()} 
+    decoded_predictions = {k: v.unsqueeze(2) for k, v in decoded_predictions.items()}
 
     loss, losses_dict, total_masked_loss, masked_c_losses, masked_c_loss_per_feature = MTM.forward_loss(
-        encoded_batch,
-        predicted_trajectories,
+        decoded_batch,
+        decoded_predictions,
         masks,
         discrete_map,
         norm=model_without_ddp.norm,
@@ -1100,6 +1108,10 @@ def _main(hydra_cfg):
             #    for key in masks.keys():
             #        if key in batch:
             #            masks[key] *= batch["attention_masks"]
+            while torch.sum(masks["states"]) == 0 and torch.sum(masks["actions"]) == 0:
+                print("mask is all zeros, retrying")
+                masks = random.choice(mask_functions)()
+
 
             if "images" in batch and "images" not in masks:
                 masks["images"] = masks["states"]
