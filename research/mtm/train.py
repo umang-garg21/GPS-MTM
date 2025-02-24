@@ -31,8 +31,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.dataloader import DataLoader
 
-# sys.path.append("/data/home/umang/Trajectory_project/mtm")
-sys.path.append("/data/home/kyle/repos/gps_mtm")
+sys.path.append("/data/home/umang/Trajectory_project/mtm")
 import sys
 
 from research.logger import WandBLogger, WandBLoggerConfig, logger, stopwatch
@@ -64,8 +63,7 @@ from research.mtm.utils import (
     set_seed_everywhere,
 )
 
-# sys.path.append("/data/home/umang/Trajectory_project/mtm/research/exorl")
-sys.path.append("/data/home/kyle/repos/gps_mtm/research/exorl")
+sys.path.append("/data/home/umang/Trajectory_project/mtm/research/exorl")
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 # Initialize the current step
