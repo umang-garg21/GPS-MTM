@@ -17,9 +17,10 @@ class DiscreteIdentity(Tokenizer):
 
     @classmethod
     def create(
-        cls, key: str, train_dataset: Dataset, num_classes: int
+        cls, key: str, train_dataset: Dataset, num_classes: int = 45
     ) -> "DiscreteIdentity":
         # add some slack
+        print("num_classes", num_classes)
         return cls(num_classes)
 
     @property
@@ -30,9 +31,10 @@ class DiscreteIdentity(Tokenizer):
         self,
         trajectory: torch.Tensor,
     ) -> torch.Tensor:
-        trajectory = torch.nn.functional.one_hot(
-            trajectory, num_classes=self.num_classes
-        )
+        # trajectory = torch.nn.functional.one_hot(
+        #     trajectory.to(torch.long), num_classes=self.num_classes
+        # )
+        # import pdb; pdb.set_trace()
         assert trajectory.dim() == 3
         return trajectory.unsqueeze(2).to(torch.float32)
 
@@ -44,5 +46,5 @@ class DiscreteIdentity(Tokenizer):
         assert trajectory.size(2) == 1
         # denormalize trajectory
         trajectory = trajectory.squeeze(2)
-        trajectory = torch.argmax(trajectory, dim=-1)
+        # trajectory = torch.argmax(trajectory, dim=-1)
         return trajectory

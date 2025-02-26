@@ -659,6 +659,7 @@ def train_one_batch(
     batch: Dict[str, torch.Tensor],
     masks: Dict[str, torch.Tensor],
     loss_keys: Sequence[str] = None,
+    epoch_step: int = 0,
 ) -> Dict[str, Any]:
     # Include attention masks in encoding
     attention_masks = batch.pop("attention_mask", None)
@@ -675,6 +676,7 @@ def train_one_batch(
     if loss_keys is None:
         loss_keys = model_without_ddp.config.loss_keys
 
+    # import pdb; pdb.set_trace()
     loss, losses_dict, total_masked_loss, masked_c_losses, masked_c_loss_per_feature = MTM.forward_loss(
         encoded_batch,
         predicted_trajectories,
@@ -687,6 +689,7 @@ def train_one_batch(
     )
 
     # create a dictionary to log all of the losses
+    print("Loss", loss)
     log_dict = {"train/train_loss": loss.item()}
     log_dict["train/lr"] = scheduler.get_last_lr()[0]
     for k, v in losses_dict.items():
@@ -703,8 +706,8 @@ def train_one_batch(
     model.zero_grad(set_to_none=True)
     
     # MODIFY THE LOSS to MASKED LOSS AND SEND IT BACKWARDS.
-    #loss.backward()
-    total_masked_loss.backward()
+    loss.backward()
+    # total_masked_loss.backward()
     
     optimizer.step()
     scheduler.step()
@@ -712,7 +715,26 @@ def train_one_batch(
     with torch.no_grad():
         mse_loss = 0
         predictions = tokenizer_manager.decode(predicted_trajectories, attention_masks=attention_masks)
+        if epoch_step > 350 and epoch_step % 25 == 0:
+            import pdb; pdb.set_trace()
+            # save predictions, ground truth and attention masks as npz
+            # np.savez(f"predictions_{epoch_step}.npz", predictions=predictions.cpu().numpy(), ground_truth=batch.cpu().numpy(),attention_masks=attention_masks.cpu().numpy())
+            # save a pickle file
+            import pickle
+            # Detach the dictionaries
+            # predictions = 
+            # batch = 
+            # attention_masks = attention_masks.detach().cpu()
+
+            with open(f"predictions_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in predictions.items()}, f); 
+            with open(f"batch_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in batch.items()}, f); 
+            with open(f"attention_masks_{epoch_step}.pkl", "wb") as f: pickle.dump(attention_masks.detach().cpu(), f)
+            # save masks
+            with open(f"masks_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in masks.items()}, f)
+            
         for k, v in predictions.items():
+            if k != "actions":
+                continue
             for f in range(v.shape[2]):
                 _mse = F.mse_loss(
                     v[attention_masks == 1][:, f].to(torch.float32),  
@@ -1109,6 +1131,7 @@ def _main(hydra_cfg):
                 discrete_map,
                 batch,
                 masks,
+                epoch_step=step,
             )
             
             log_dict.update(_log_dict)
@@ -1120,7 +1143,7 @@ def _main(hydra_cfg):
                 train_loss = log_dict["train/train_loss"]
             except:
                 train_loss = -1
-            logger.info(f"Step: {step}, Train Loss: {train_loss}")
+            logger.info(f"Step: {step}, Train Loss---: {train_loss}")
 
         if dp.rank == 0 and step % cfg.save_every == 0:
             torch.save(

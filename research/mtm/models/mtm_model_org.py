@@ -337,6 +337,9 @@ class MTM(nn.Module):
             masked_c_losses[key] = masked_c_loss
             masked_losses[key] = masked_loss
 
+        print("losses", losses)
+        print("masked_losses", masked_losses)
+        print("masked_c_losses", masked_c_losses)
         if loss_keys is None:
             loss = torch.sum(torch.stack(list(losses.values())))
         else:

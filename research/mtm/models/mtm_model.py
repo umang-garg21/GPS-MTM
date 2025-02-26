@@ -323,15 +323,38 @@ class MTM(nn.Module):
             if len(mask.shape) == 1:
                 mask = mask[:, None].repeat(1, target.shape[2])
 
+            # import pdb; pdb.set_trace()
             if discrete_map[key]:
                 raw_loss = nn.CrossEntropyLoss(reduction="none")(
                     pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
                 ).unsqueeze(3)
+                
             else:
+                # import pdb; pdb.set_trace()
                 if norm == "l2":
                     target = target / torch.norm(target, dim=-1, keepdim=True)
                 raw_loss = nn.MSELoss(reduction="none")(pred, target)
                 
+                # import pdb; pdb.set_trace()
+                # Convert time components to total minutes for both sets of indices
+                pred_minutes_1 = time_to_minutes(pred[:, :, :, 0], pred[:, :, :, 1], pred[:, :, :, 2])
+                target_minutes_1 = time_to_minutes(target[:, :, :, 0], target[:, :, :, 1], target[:, :, :, 2])
+
+                pred_minutes_2 = time_to_minutes(pred[:, :, :, 3], pred[:, :, :, 4], pred[:, :, :, 5])
+                target_minutes_2 = time_to_minutes(target[:, :, :, 3], target[:, :, :, 4], target[:, :, :, 5])
+
+                # Compute the loss in terms of difference in minutes for both sets of indices
+                minute_loss_1 = nn.MSELoss(reduction="none")(pred_minutes_1, target_minutes_1)
+                minute_loss_2 = nn.MSELoss(reduction="none")(pred_minutes_2, target_minutes_2)
+
+                # Combine the losses (you can adjust the weights as needed)
+                combined_loss = minute_loss_1 + minute_loss_2
+                
+                # import pdb; pdb.set_trace()
+
+                # Use combined_loss for further computations
+                raw_loss = combined_loss.unsqueeze(-1)
+
             #Actual loss is only upto attention_mask length. Focus the model to learn relevant tokens not 0s.
             actual_loss= raw_loss * attention_masks.unsqueeze(-1).unsqueeze(-1)
 
@@ -351,6 +374,8 @@ class MTM(nn.Module):
             losses[key] = actual_loss.mean(dim=(2, 3)).mean()
             masked_c_losses[key] = masked_c_loss
 
+        print("Losses: ", losses)
+        print("Masked Losses: ", masked_c_losses)
         if loss_keys is None:
             total_loss = torch.sum(torch.stack(list(losses.values())))
             total_masked_c_loss = torch.sum(torch.stack(list(masked_c_losses.values())))
@@ -481,9 +506,14 @@ class MTM(nn.Module):
         batched_masks = self.process_masks(trajectories, masks)
         embedded_trajectories = self.trajectory_encoding(trajectories, attention_masks)
 
-        encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
-            embedded_trajectories, batched_masks, attention_masks=attention_masks
-        )
+        # import pdb; pdb.set_trace()
+        try:
+            encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
+                embedded_trajectories, batched_masks, attention_masks=attention_masks
+            )
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            # import pdb; pdb.set_trace()
         # extract the trajectories
         return self.forward_decoder(encoded_trajectories, ids_restore, keep_length, attention_masks=attention_masks)
 
@@ -775,3 +805,7 @@ class MTM(nn.Module):
         ]
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas)
         return optimizer
+
+def time_to_minutes(day, hour, minute):
+    # Convert day, hour, and minute to total minutes
+    return (day * 24 * 60 + hour * 60 + minute)/(24*60.0)
