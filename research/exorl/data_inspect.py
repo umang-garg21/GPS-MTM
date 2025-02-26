@@ -30,7 +30,7 @@ def inspect_buffer_directory_and_file(buffer_dir):
 
 
 # Replace with your actual buffer directory path
-buffer_dir = "/data/home/umang/Trajectory_project/mtm/research/exorl/datasets/point_mass_maze/proto/buffer"
+buffer_dir = "/data/home/chandrakanth/a100_code/feb24_code/GPS-MTM/research/exorl/datasets/point_mass_maze/proto/buffer"
 buffer_dir = "/data/home/umang/Trajectory_project/anomaly_traj_data/haystac_anomaly_data1/saved_agent_episodes/obs4_act1"
 
 inspect_buffer_directory_and_file(buffer_dir)

@@ -19,4 +19,4 @@ has_next_action: False
 # new model
 #path: "/TODO/path/to/model/folder"
 #path: "# Correct the path
-path: "/data/home/umang/Trajectory_project/mtm/research/exorl/models"
+path: "/data/home/chandrakanth/a100_code/feb24_code/GPS-MTM/research/exorl/models"

@@ -7,7 +7,7 @@ import warnings
 
 from omegaconf import OmegaConf
 
-sys.path.append("/data/home/umang/Trajectory_project/mtm/research")
+sys.path.append("/data/home/chandrakanth/a100_code/feb24_code/GPS-MTM/research")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import os
@@ -99,7 +99,7 @@ def main(cfg):
     domain = get_domain(cfg.task)
     # datasets_dir = work_dir / cfg.replay_buffer_dir
     datasets_dir = Path(
-        "/data/home/umang/Trajectory_project/mtm/research/exorl/datasets"
+        "/data/home/chandrakanth/a100_code/feb24_code/GPS-MTM/research/exorl/datasets"
     )
     replay_dir = datasets_dir.resolve() / domain / cfg.expl_agent / "buffer"
     print(f"replay dir: {replay_dir}")

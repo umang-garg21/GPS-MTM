@@ -11,7 +11,7 @@ from collections import defaultdict
 import torch
 from termcolor import colored
 
-sys.path.append("/data/home/umang/Trajectory_project/mtm")
+sys.path.append("/data/home/chandrakanth/a100_code/feb24_code/GPS-MTM")
 from research.logger import WandBLogger, WandBLoggerConfig
 
 TRAIN_FORMAT = [

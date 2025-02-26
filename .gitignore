@@ -48,3 +48,4 @@ research/exorl/notebooks/
 research/exorl/slurm/
 research/exorl/data/
 research/exorl/datasets/
+.vscode/launch.json
