@@ -157,17 +157,7 @@ class OfflineReplayBuffer(Dataset, DatasetProtocol):
         num_samples = 10
         eval_logs = {}
         device = next(model.parameters()).device
-
-        open_loop_mse = {
-            # "pre_d_rand_mse_sum": 0,
-            # "post_d_rand_mse_sum": 0,
-            # "pre_d_full_mse_sum": 0,
-            # "post_d_full_mse_sum": 0,
-            # "pre_d_feat_full_mse_sum": 0,
-            # "post_d_feat_full_mse_sum": 0,
-            # "pre_d_feat_mse_sum": 0,
-            # "post_d_feat_mse_sum": 0,
-        }
+        open_loop_mse = {}
 
         def mse_routine(batch_torch: torch.tensor, masks_torch: dict, k: str, feat_c: int = None):
             encoded_batch = tokenizer_manager.encode(batch_torch, attention_masks=attention_masks)
@@ -191,48 +181,22 @@ class OfflineReplayBuffer(Dataset, DatasetProtocol):
             # Update the loss dict at the start of the loop
             if n == 0:
                 for k, v in batch_torch.items():
-                    open_loop_mse[f"pre_d_rand_{k}"] = 0
-                    open_loop_mse[f"post_d_rand_{k}"] = 0
-                    open_loop_mse[f"pre_d_full_{k}"] = 0
-                    open_loop_mse[f"post_d_full_{k}"] = 0
-                    # for feat_c in range(v.shape[-1]):
-                    #     open_loop_mse[f"pre_d_{k}_{feat_c}"] = 0
-                    #     open_loop_mse[f"post_d_{k}_{feat_c}"] = 0
-                    #     open_loop_mse[f"pre_d_full_{k}_{feat_c}"] = 0
-                    #     open_loop_mse[f"post_d_full_{k}_{feat_c}"] = 0
+                    open_loop_mse[f"pre_d_rand_{k}_only"] = 0
+                    open_loop_mse[f"post_d_rand_{k}_only"] = 0
+                    open_loop_mse[f"pre_d_full_{k}_only"] = 0
+                    open_loop_mse[f"post_d_full_{k}_only"] = 0
+                open_loop_mse[f"pre_d_rand_states_and_actions"] = 0
+                open_loop_mse[f"post_d_rand_states_and_actions"] = 0
+                open_loop_mse[f"pre_d_full_states_and_actions"] = 0
+                open_loop_mse[f"post_d_full_states_and_actions"] = 0
 
             # Using autoregressive masking
-            random_mask_start_idx = random.randint(1, batch["actions"].shape[0]-2)
+            random_mask_end_idx = random.randint(1, batch["actions"].shape[0]-2)
             random_mask = torch.zeros(batch["actions"].shape[0]).to(device)
-            random_mask[random_mask_start_idx:] = 1
+            random_mask[:random_mask_end_idx] = 1
             empty_mask = torch.ones(batch["actions"].shape[0]).to(device)
             full_mask = torch.zeros(batch["actions"].shape[0]).to(device)
-            full_mask[0] = 0
-
-            # # Masking per feature
-            # for k, v in batch_torch.items():
-            #     other_k = (set(list(batch_torch.keys())) - set([k])).pop()
-            #     feat_mask = torch.stack([empty_mask for _ in range(v.shape[-1])], dim=-1)
-
-            #     # Iterating over features
-            #     for feat_c in range(v.shape[-1]):
-            #         # Partial mask
-            #         feat_mask[:, feat_c] = random_mask
-            #         masks_torch = {k: feat_mask, other_k: empty_mask}
-            #         pre_d_mse, post_d_mse = mse_routine(batch_torch, masks_torch, k, feat_c)
-            #         open_loop_mse[f"pre_d_{k}_{feat_c}"] += pre_d_mse.item()
-            #         open_loop_mse["pre_d_feat_mse_sum"] += pre_d_mse.item()
-            #         open_loop_mse[f"post_d_{k}_{feat_c}"] += post_d_mse.item()
-            #         open_loop_mse["post_d_feat_mse_sum"] += post_d_mse.item()
-
-            #         # Full mask
-            #         feat_mask[:, feat_c] = full_mask
-            #         masks_torch = {k: feat_mask, other_k: empty_mask}
-            #         pre_d_mse, post_d_mse = mse_routine(batch_torch, masks_torch, k, feat_c)
-            #         open_loop_mse[f"pre_d_full_{k}_{feat_c}"] += pre_d_mse.item()
-            #         open_loop_mse["pre_d_feat_full_mse_sum"] += pre_d_mse.item()
-            #         open_loop_mse[f"post_d_full_{k}_{feat_c}"] += post_d_mse.item()
-            #         open_loop_mse["post_d_feat_full_mse_sum"] += post_d_mse.item()
+            full_mask[0] = 1
 
             # Masking over entire state or action
             for k, v in batch_torch.items():
@@ -245,10 +209,8 @@ class OfflineReplayBuffer(Dataset, DatasetProtocol):
                 masks_torch = {k: mask.unsqueeze(1), other_k: empty_mask.unsqueeze(1)}
                 pre_d_mse, post_d_mse = mse_routine(batch_torch, masks_torch, k)
 
-                open_loop_mse[f"pre_d_rand_{k}"] += pre_d_mse.item()
-                open_loop_mse[f"post_d_rand_{k}"] += post_d_mse.item()
-                # open_loop_mse["pre_d_rand_mse_sum"] += pre_d_mse.item()
-                # open_loop_mse["post_d_rand_mse_sum"] += post_d_mse.item()
+                open_loop_mse[f"pre_d_rand_{k}_only"] += pre_d_mse.item()
+                open_loop_mse[f"post_d_rand_{k}_only"] += post_d_mse.item()
 
                 # Full mask
                 # mask = torch.stack([full_mask for _ in range(v.shape[-1])], dim=-1)
@@ -256,10 +218,20 @@ class OfflineReplayBuffer(Dataset, DatasetProtocol):
                 masks_torch = {k: mask.unsqueeze(1), other_k: empty_mask.unsqueeze(1)}
                 pre_d_mse, post_d_mse = mse_routine(batch_torch, masks_torch, k)
 
-                open_loop_mse[f"pre_d_full_{k}"] += pre_d_mse.item()
-                open_loop_mse[f"post_d_full_{k}"] += post_d_mse.item()
-                # open_loop_mse["pre_d_full_mse_sum"] += pre_d_mse.item()
-                # open_loop_mse["post_d_full_mse_sum"] += post_d_mse.item()
+                open_loop_mse[f"pre_d_full_{k}_only"] += pre_d_mse.item()
+                open_loop_mse[f"post_d_full_{k}_only"] += post_d_mse.item()
+            
+            # Mask both states and actions
+            masks_torch = {k: random_mask.unsqueeze(1) for k in batch_torch.keys()}
+            pre_d_mse, post_d_mse = mse_routine(batch_torch, masks_torch, k)
+            open_loop_mse[f"pre_d_rand_states_and_actions"] += pre_d_mse.item()
+            open_loop_mse[f"post_d_rand_states_and_actions"] += post_d_mse.item() 
+
+            masks_torch = {k: full_mask.unsqueeze(1) for k in batch_torch.keys()}
+            pre_d_mse, post_d_mse = mse_routine(batch_torch, masks_torch, k)
+            open_loop_mse[f"pre_d_full_states_and_actions"] += pre_d_mse.item()
+            open_loop_mse[f"post_d_full_states_and_actions"] += post_d_mse.item()
+
 
         # Update logs
         for k, v in open_loop_mse.items():
