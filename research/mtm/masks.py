@@ -188,8 +188,6 @@ def create_forward_dynamics_mask(
     return {
         "states": torch.from_numpy(state_mask).to(device),
         "actions": torch.from_numpy(action_mask).to(device),
-        "rewards": torch.from_numpy(reward_mask).to(device),
-        "returns": torch.from_numpy(return_mask).to(device),
     }
 
 

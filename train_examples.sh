@@ -30,21 +30,5 @@ CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont ++datase
 
 CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont ++datasets.env_name="gps_traj_masked_modelling" ++datasets.replay_buffer_dir="/data/home/chandrakanth/a100_code/umang_mtm/data_chand/saved_agents_1000/"
 
-CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont_statediscrete_actcont ++datasets.env_name="gps_traj_masked_modelling" ++datasets.replay_buffer_dir="/data/home/chandrakanth/a100_code/umang_mtm/data_chand/saved_agents_1000/"
+CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont_statediscrete_actcont ++datasets.env_name="gps_traj_masked_modelling" ++datasets.replay_buffer_dir="/data/home/umang/Trajectory_project/anomaly_traj_data/saved_agents_1000_47class"
 
-# Prepare launch.json for debugging using the above command
-# {
-#     "version": "0.2.0",
-#     "configurations": [
-#         {
-#             "name": "Python: Current File",
-#             "type": "python",
-#             "request": "launch",
-#             "program": "${file}",
-#             "console": "integratedTerminal",
-#             "env": {
-#                 "PYTHONPATH": "/data/home/chandrakanth/a100_code/feb24_code/GPS-MTM"
-#             }
-#         }
-#     ]
-# } 

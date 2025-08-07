@@ -1,0 +1,50 @@
+# Test configuration for MTM model evaluation
+# Based on the main config.yaml but modified for testing
+
+defaults:
+  - datasets: d4rl
+  - override hydra/launcher: slurm  
+  - override hydra/output: local
+  - _self_
+
+model_config:
+  _target_: research.mtm.models.mtm_model.MTMConfig
+  norm: "none"
+  n_embd: 1024
+  n_enc_layer: 2
+  n_dec_layer: 1
+  n_head: 4
+  dropout: 0.1
+  loss_keys: null
+  latent_dim: null
+
+state_only_dataset: null
+
+# Test-specific arguments
+args:
+  _target_: research.mtm.test.TestConfig
+  seed: 42
+  batch_size: 32
+  n_workers: 4
+  device: cuda
+  mask_ratios: [0.15, 0.35, 0.55, 0.75, 0.85, 0.95]
+  mask_patterns: ["RANDOM", "GOAL", "ID", "FD"]
+  traj_length: 221
+  mode_order: ["states", "actions"]
+  mode_weights: [0.5, 0.5]
+  model_path: "/data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_mae/2025-08-05_11-09-13/model_0.pt"  # Path to your trained model checkpoint
+  save_predictions: true
+  output_dir: "test_outputs"
+
+# WandB configuration for test logging
+wandb:
+  project: "experiments_test"  # Will append "_test" to create separate test project
+  entity: ""
+  resume: false
+
+job_name: test_job
+
+hydra:
+  job:
+    name: mtm_test
+    chdir: True
