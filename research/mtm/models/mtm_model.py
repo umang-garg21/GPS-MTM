@@ -328,6 +328,7 @@ class MTM(nn.Module):
         masked_c_losses = {}
         masked_c_loss_per_feature_k = {}
 
+        
         for key in targets.keys():
             target = targets[key]
             pred = preds[key]
@@ -353,27 +354,32 @@ class MTM(nn.Module):
                 # import pdb; pdb.set_trace()
                 if norm == "l2":
                     target = target / torch.norm(target, dim=-1, keepdim=True)
-                raw_loss = nn.MSELoss(reduction="none")(pred, target)
+                # raw_loss = nn.MSELoss(reduction="none")(pred, target)
+                raw_loss=nn.CrossEntropyLoss(reduction="none")(pred, target)
                 
+
                 # import pdb; pdb.set_trace()
-                # Convert time components to total minutes for both sets of indices
-                pred_minutes_1 = time_to_minutes(pred[:, :, :, 0], pred[:, :, :, 1], pred[:, :, :, 2])
-                target_minutes_1 = time_to_minutes(target[:, :, :, 0], target[:, :, :, 1], target[:, :, :, 2])
+                # # Convert time components to total minutes for both sets of indices
+                # pred_minutes_1 = time_to_minutes(pred[:, :, :, 0], pred[:, :, :, 1], pred[:, :, :, 2])
+                # target_minutes_1 = time_to_minutes(target[:, :, :, 0], target[:, :, :, 1], target[:, :, :, 2])
 
-                pred_minutes_2 = time_to_minutes(pred[:, :, :, 3], pred[:, :, :, 4], pred[:, :, :, 5])
-                target_minutes_2 = time_to_minutes(target[:, :, :, 3], target[:, :, :, 4], target[:, :, :, 5])
+                # pred_minutes_2 = time_to_minutes(pred[:, :, :, 3], pred[:, :, :, 4], pred[:, :, :, 5])
+                # target_minutes_2 = time_to_minutes(target[:, :, :, 3], target[:, :, :, 4], target[:, :, :, 5])
 
-                # Compute the loss in terms of difference in minutes for both sets of indices
-                minute_loss_1 = nn.MSELoss(reduction="none")(pred_minutes_1, target_minutes_1)
-                minute_loss_2 = nn.MSELoss(reduction="none")(pred_minutes_2, target_minutes_2)
+                # # Compute the loss in terms of difference in minutes for both sets of indices
+                # minute_loss_1 = nn.MSELoss(reduction="none")(pred_minutes_1, target_minutes_1)
+                # minute_loss_2 = nn.MSELoss(reduction="none")(pred_minutes_2, target_minutes_2)
 
-                # Combine the losses (you can adjust the weights as needed)
-                combined_loss = minute_loss_1 + minute_loss_2
+                # # Combine the losses (you can adjust the weights as needed)
+                # combined_loss = minute_loss_1 + minute_loss_2
                 
-                # import pdb; pdb.set_trace()
+                # # pred.shape is torch.Size([128, 221, 1, 1]) and target.shape is torch.Size([128, 221, 1, 1])
+                # combined_loss = raw_loss.sum(dim=-1, keepdim=True)  # Sum over the last dimension
+                
+                # # import pdb; pdb.set_trace()
 
-                # Use combined_loss for further computations
-                raw_loss = combined_loss.unsqueeze(-1)
+                # # Use combined_loss for further computations
+                # raw_loss = combined_loss.unsqueeze(-1)
 
             if attention_masks is not None:
                 # Actual loss is only upto attention_mask length. Focus the model to learn relevant tokens not 0s.

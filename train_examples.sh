@@ -30,5 +30,5 @@ CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont ++datase
 
 CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont ++datasets.env_name="gps_traj_masked_modelling" ++datasets.replay_buffer_dir="/data/home/chandrakanth/a100_code/umang_mtm/data_chand/saved_agents_1000/"
 
-CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont_statediscrete_actcont ++datasets.env_name="gps_traj_masked_modelling" ++datasets.replay_buffer_dir="/data/home/umang/Trajectory_project/anomaly_traj_data/saved_agents_1000_47class"
+CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py +exp_traj=traj_cont_statediscrete_actcont ++datasets.env_name="gps_traj_masked_modelling" ++datasets.replay_buffer_dir="/data/home/umang/Trajectory_project/anomaly_traj_data/haystac_anomaly_data1/saved_agent_episodes_new/obs28_act11"
 
