@@ -726,9 +726,9 @@ def train_one_batch(
             # batch = 
             # attention_masks = attention_masks.detach().cpu()
 
-            with open(f"predictions_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in predictions.items()}, f); 
-            with open(f"batch_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in batch.items()}, f); 
-            with open(f"attention_masks_{epoch_step}.pkl", "wb") as f: pickle.dump(attention_masks.detach().cpu(), f)
+            with open(f"47_class__predictions_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in predictions.items()}, f); 
+            with open(f"47_class__batch_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in batch.items()}, f); 
+            with open(f"47_class__attention_masks_{epoch_step}.pkl", "wb") as f: pickle.dump(attention_masks.detach().cpu(), f)
             # save masks
             with open(f"masks_{epoch_step}.pkl", "wb") as f: pickle.dump({k: v.detach().cpu() for k, v in masks.items()}, f)
             

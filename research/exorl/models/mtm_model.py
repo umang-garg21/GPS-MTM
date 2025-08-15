@@ -301,6 +301,8 @@ class MTM(nn.Module):
 
             batch_size, T, P, _ = target.size()
             if discrete_map[key]:
+                print("exorm mtm")
+                import pdb; pdb.set_trace()
                 raw_loss = nn.CrossEntropyLoss(reduction="none")(
                     pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
                 ).unsqueeze(3)

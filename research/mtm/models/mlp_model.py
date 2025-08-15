@@ -199,6 +199,8 @@ class MLP_BC(nn.Module):
             discrete_map (Dict[str, bool]): discrete_map
         """
         if is_discrete:
+            print("nonenne")
+            import pdb; pdb.set_trace()
             loss = nn.CrossEntropyLoss(reduction="none")(
                 pred_logits.permute(0, 3, 1, 2), actions.permute(0, 3, 1, 2)
             ).unsqueeze(3)

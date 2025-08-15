@@ -301,7 +301,12 @@ class MTM(nn.Module):
 
             batch_size, T, P, _ = target.size()
             if discrete_map[key]:
-                raw_loss = nn.CrossEntropyLoss(reduction="none")(
+                import pdb; pdb.set_trace()
+                print("======ckck")
+                class_weights = torch.tensor([0.9] * 45 + [0.1, 0.9], device=pred.device)  # example weights
+                print("class_weights", class_weights)
+                import pdb; pdb.set_trace()
+                raw_loss = nn.CrossEntropyLoss(weight=class_weights, reduction="none")(
                     pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
                 ).unsqueeze(3)
             else:
