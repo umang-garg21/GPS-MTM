@@ -558,7 +558,6 @@ class MTM(nn.Module):
     def forward(self, trajectories, masks, attention_masks=None):
         batched_masks = self.process_masks(trajectories, masks)
         embedded_trajectories = self.trajectory_encoding(trajectories, attention_masks)
-
         try:
             encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
                 embedded_trajectories, batched_masks, attention_masks=attention_masks
@@ -629,6 +628,7 @@ class MTM(nn.Module):
         feats=torch.cat(feats, dim=1)
         src_key_padding_mask=torch.cat(src_key_padding_mask, dim=1).to(feats.device)
 
+        import pdb; pdb.set_trace()
         # ONLY SELECTED SORTED FEATURES ARE PASSED TO THE ENCODER
         x = self.encoder(feats, src_key_padding_mask=src_key_padding_mask)  # src key padding mask to ignore padded values
         
