@@ -3,7 +3,7 @@ import torch
 import os
 import glob
 
-folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_test/2025-08-16_15-56-29/test_outputs"
+folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_test/2025-08-16_19-42-53/test_outputs"
 # Get all batch files in the folder
 pred_files = sorted(glob.glob(f"{folder}/predictions_batch_*.pkl"))
 batch_files = sorted(glob.glob(f"{folder}/ground_truth_batch_*.pkl"))

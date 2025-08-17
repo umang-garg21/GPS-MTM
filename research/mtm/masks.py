@@ -49,12 +49,17 @@ def create_random_mask(
         mask_ratio = mask_ratios
 
     masked = int(traj_length * mask_ratio)
-    random_mask = np.concatenate(
-        [
-            np.ones(masked),
-            np.zeros(traj_length - masked),
-        ]
+    # random_mask = np.concatenate(
+    #     [
+    #         np.ones(masked),
+    #         np.zeros(traj_length - masked),
+    #     ]
+    # )
+
+    random_mask = np.random.choice(
+        [1, 0], size=traj_length, p=[mask_ratio, 1 - mask_ratio]
     )
+    #import pdb; pdb.set_trace()
     if rnd_state is None:
         np.random.shuffle(random_mask)
     else:

@@ -678,6 +678,7 @@ def test_model_on_batch(
 
     # Calculate MSE losses
     mse_loss = 0
+    ce_loss=0
     predictions = tokenizer_manager.decode(predicted_trajectories, attention_masks=attention_masks)
     
     if save_predictions:
@@ -696,13 +697,19 @@ def test_model_on_batch(
             pickle.dump({k: v.detach().cpu() for k, v in masks.items()}, f)
             
     for k, v in predictions.items():
-        if k != "actions":
-            continue
-        for f in range(v.shape[2]):
-            if attention_masks is not None:
-                _mse = F.mse_loss(
-                    v[attention_masks == 1][:, f].to(torch.float32),  
-                    batch[k][attention_masks == 1][:, f].to(torch.float32),
+        if k == "states":
+            x= torch.argmax(v, dim=-1).to(torch.float32)
+            y= torch.argmax(batch[k], dim=-1).to(torch.float32)
+            _ce = F.cross_entropy(x[attention_masks == 1],y[attention_masks == 1], reduction='sum') / (attention_masks.sum()).item()
+            ce_loss += _ce
+
+        elif k == "actions":
+            for f in range(v.shape[2]):
+                if attention_masks is not None:
+                    _ce = F.mse_loss(
+                        v[attention_masks == 1][:, f].to(torch.float32),
+                        batch[k][attention_masks == 1][:, f].to(torch.long),
+                    reduction='sum'
                 ) / (attention_masks.sum()).item()
             else:
                 _mse = F.mse_loss(
@@ -711,7 +718,9 @@ def test_model_on_batch(
                 ).item()
             log_dict[f"test/mse_{k}_{f}"] = _mse
             mse_loss += _mse
-    log_dict["test/mse_sum"] = mse_loss
+
+    log_dict["test/mse_sum_Actions"] = mse_loss
+    log_dict["test/cross_entropy_sum_States"] = ce_loss
 
     return log_dict
 

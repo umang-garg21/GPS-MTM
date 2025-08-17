@@ -2,7 +2,7 @@
 # Based on the main config.yaml but modified for testing
 
 defaults:
-  - datasets: d4rl
+  - datasets: numosim
   - override hydra/launcher: slurm  
   - override hydra/output: local
   - _self_
@@ -27,12 +27,13 @@ args:
   batch_size: 32
   n_workers: 4
   device: cuda
-  mask_ratios: [0.35]
+  mask_ratios: [0.8]
   mask_patterns: ["RANDOM", "GOAL", "ID", "FD"]
   traj_length: 221
   mode_order: ["states", "actions"]
   mode_weights: [0.5, 0.5]
-  model_path: /data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_mae/2025-08-15_17-33-52/model_0.pt  # Path to your trained model checkpoint
+  # Path to your trained model checkpoint
+  model_path: /data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_mae/2025-08-16_18-28-54/model_10000.pt  
   save_predictions: true
   output_dir: "test_outputs"
 
