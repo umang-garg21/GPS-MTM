@@ -539,6 +539,9 @@ class TestConfig:
     output_dir: str = "test_outputs"
     """Directory to save test outputs."""
 
+    test_name: str = "default_test"
+    """Custom name for this test run."""
+
 @torch.inference_mode()
 def evaluate(
     model: MTM,
@@ -836,22 +839,24 @@ def _main(hydra_cfg):
     wandb_cfg_log_dict["*test_path"] = str(os.getcwd())
     wandb_cfg_log_dict["*mask_patterns"] = cfg.mask_patterns
     wandb_cfg_log_dict["*model_path"] = cfg.model_path
+    wandb_cfg_log_dict["*test_name"] = cfg.test_name
     wandb_cfg_log_dict["*num_parameters"] = sum(
         p.numel() for p in model.parameters() if p.requires_grad
     )
 
     wandb_cfg_log = WandBLoggerConfig(
-        experiment_id=f"test-{dp.job_id}-{dp.rank}",
+        experiment_id=f"{cfg.test_name}-{dp.job_id}-{dp.rank}",
         project=hydra_cfg.wandb.project + "_test",
         entity=hydra_cfg.wandb.entity or None,
         resume=False,
-        group=f"test-{dp.job_id}",
+        group=f"{cfg.test_name}-{dp.job_id}",
     )
 
     wandb_logger = WandBLogger(wandb_cfg_log, wandb_cfg_log_dict)
 
-    # Create output directory
-    os.makedirs(cfg.output_dir, exist_ok=True)
+    # Create output directory with custom test name
+    test_output_dir = os.path.join(cfg.output_dir, cfg.test_name)
+    os.makedirs(test_output_dir, exist_ok=True)
 
     # Setup evaluation masks
     has_rew = "rewards" in test_batch
@@ -947,7 +952,7 @@ def _main(hydra_cfg):
                     masks,
                     batch_idx,
                     save_predictions=cfg.save_predictions,
-                    output_dir=cfg.output_dir,
+                    output_dir=test_output_dir,
                 )
                 
                 # Add mask pattern info to results
@@ -1021,13 +1026,13 @@ def _main(hydra_cfg):
     
     # Save final statistics
     import json
-    with open(f"{cfg.output_dir}/test_statistics.json", "w") as f:
+    with open(f"{test_output_dir}/test_statistics.json", "w") as f:
         json.dump(final_stats, f, indent=2)
     
     # Log final statistics to wandb
     wandb_logger.log(final_stats, step=len(all_results))
     
-    logger.info(f"Testing completed! Results saved to {cfg.output_dir}")
+    logger.info(f"Testing completed! Results saved to {test_output_dir}")
     logger.info("Final Statistics:")
     for key, value in final_stats.items():
         logger.info(f"  {key}: {value:.6f}")

@@ -26,6 +26,7 @@ This `test.py` script is designed to evaluate a trained MTM (Masked Trajectory M
      batch_size: 32
      save_predictions: true
      output_dir: "test_outputs"
+     test_name: "my_custom_test"  # Custom name for this test run
      mask_patterns: ["RANDOM", "GOAL", "ID", "FD"]
      traj_length: 221  # Should match your training configuration
    ```
@@ -40,12 +41,15 @@ This `test.py` script is designed to evaluate a trained MTM (Masked Trajectory M
    
    # Override specific parameters
    python test.py args.model_path="/path/to/model.pt" args.batch_size=16
+   
+   # Use a custom test name for better organization
+   python test.py args.test_name="gps_trajectory_evaluation"
    ```
 
 3. **Check results**:
-   - Test statistics saved to `test_outputs/test_statistics.json`
-   - Individual batch predictions saved as pickle files
-   - WandB logs available in the test project
+   - Test statistics saved to `test_outputs/{test_name}/test_statistics.json`
+   - Individual batch predictions saved as pickle files in the test name subdirectory
+   - WandB logs available in the test project with custom experiment names
 
 ## Configuration Details
 
@@ -57,6 +61,7 @@ This `test.py` script is designed to evaluate a trained MTM (Masked Trajectory M
 ### Optional Parameters:
 - `save_predictions`: Whether to save individual batch predictions (default: true)
 - `output_dir`: Directory for saving results (default: "test_outputs")
+- `test_name`: Custom name for the test run - affects output directory and WandB logging (default: "default_test")
 - `mask_patterns`: List of masking strategies to test (default: ["RANDOM"])
 - `traj_length`: Trajectory length (should match training config)
 
@@ -75,7 +80,26 @@ model_config:   # Identical to training config
 args:
   _target_: research.mtm.test.TestConfig  # Changed from train.RunConfig
   model_path: "/path/to/checkpoint.pt"    # Added for testing
+  test_name: "experiment_1"               # Custom name for organization
   # ... other test parameters
+```
+
+## Custom Test Naming
+
+The `test_name` parameter allows you to organize your test runs:
+- **WandB Integration**: Creates experiment IDs like `{test_name}-{job_id}-{rank}`
+- **Output Organization**: Results saved to `{output_dir}/{test_name}/`
+- **Easy Tracking**: Group related test runs with meaningful names
+
+Example usage:
+```bash
+# Compare different mask patterns
+python test.py args.test_name="random_mask_eval" args.mask_patterns=["RANDOM"]
+python test.py args.test_name="goal_mask_eval" args.mask_patterns=["GOAL"]
+
+# Test different trajectory lengths
+python test.py args.test_name="short_traj" args.traj_length=50
+python test.py args.test_name="long_traj" args.traj_length=200
 ```
 
 ## Output Files

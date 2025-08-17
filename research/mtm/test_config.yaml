@@ -1,5 +1,6 @@
 # Test configuration for MTM model evaluation
 # Based on the main config.yaml but modified for testing
+# Use the 'test_name' field to give custom names to your test runs
 
 defaults:
   - datasets: numosim
@@ -36,6 +37,7 @@ args:
   model_path: /data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_mae/2025-08-16_18-28-54/model_10000.pt  
   save_predictions: true
   output_dir: "test_outputs"
+  test_name: "default_test"  # Custom name for this test run
 
 # WandB configuration for test logging
 wandb:
