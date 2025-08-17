@@ -349,14 +349,13 @@ class MTM(nn.Module):
                 raw_loss = nn.CrossEntropyLoss(reduction="none")(
                     pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
                 ).unsqueeze(3)
-                
+            
             else:
                 # import pdb; pdb.set_trace()
                 if norm == "l2":
                     target = target / torch.norm(target, dim=-1, keepdim=True)
-                # raw_loss = nn.MSELoss(reduction="none")(pred, target)
-                raw_loss=nn.CrossEntropyLoss(reduction="none")(pred, target)
-                
+                raw_loss = nn.MSELoss(reduction="none")(pred, target)/100
+                #raw_loss=nn.CrossEntropyLoss(reduction="none")(pred, target)
 
                 # import pdb; pdb.set_trace()
                 # # Convert time components to total minutes for both sets of indices
@@ -570,7 +569,9 @@ class MTM(nn.Module):
             # import pdb; pdb.set_trace()
             raise e  # Re-raise the exception instead of continuing
         # extract the trajectories
-        return self.forward_decoder(encoded_trajectories, ids_restore, keep_length, attention_masks=attention_masks)
+        extracted_trajectories = self.forward_decoder(encoded_trajectories, ids_restore, keep_length, attention_masks=attention_masks)
+        extracted_trajectories['actions'][..., 0] = trajectories['actions'][..., 0]  # first action is always the same
+        return extracted_trajectories
 
     def encode(self, trajectories, masks) -> Dict[str, torch.Tensor]:
         batched_masks = self.process_masks(trajectories, masks)

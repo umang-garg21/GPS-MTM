@@ -712,7 +712,7 @@ def train_one_batch(
         mse_loss = 0
         predictions = tokenizer_manager.decode(predicted_trajectories, attention_masks=attention_masks)
         if epoch_step > 350 and epoch_step % 25 == 0:
-            import pdb; pdb.set_trace()
+            #import pdb; pdb.set_trace()
             # save predictions, ground truth and attention masks as npz
             # np.savez(f"predictions_{epoch_step}.npz", predictions=predictions.cpu().numpy(), ground_truth=batch.cpu().numpy(),attention_masks=attention_masks.cpu().numpy())
             # save a pickle file
