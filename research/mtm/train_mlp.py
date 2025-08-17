@@ -267,7 +267,7 @@ def _main(hydra_cfg):
             os.getcwd()
         )  # hydra/submit-it will resume jobs from the same folder
         if ckpt_path is not None:
-            ckpt = torch.load(ckpt_path, map_location=cfg.device)
+            ckpt = torch.load(ckpt_path, map_location=cfg.device, weights_only=False)
             logger.info(f"Resuming from checkpoint: {ckpt_path}")
             step = ckpt["step"]
             model.load_state_dict(ckpt["model"])

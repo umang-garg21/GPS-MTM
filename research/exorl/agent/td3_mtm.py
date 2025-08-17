@@ -63,7 +63,7 @@ def get_mtm_model(
 
     model_config = hydra.utils.instantiate(hydra_cfg.model_config)
     model = MTM(data_shapes, cfg.traj_length, model_config)
-    model.load_state_dict(torch.load(ckpt_path)["model"])
+    model.load_state_dict(torch.load(ckpt_path, weights_only=False)["model"])
     model.eval()
 
     # freeze the model

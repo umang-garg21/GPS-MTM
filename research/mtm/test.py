@@ -642,6 +642,7 @@ def test_model_on_batch(
     batch: Dict[str, torch.Tensor],
     masks: Dict[str, torch.Tensor],
     batch_idx: int = 0,
+    mask_pattern: str = "RANDOM",
     save_predictions: bool = True,
     output_dir: str = "test_outputs",
 ) -> Dict[str, Any]:
@@ -686,9 +687,10 @@ def test_model_on_batch(
     
     if save_predictions:
         # Save predictions and ground truth
+        output_dir= output_dir+"/"+mask_pattern
         os.makedirs(output_dir, exist_ok=True)
         import pickle
-        
+
         with open(f"{output_dir}/predictions_batch_{batch_idx}.pkl", "wb") as f:
             pickle.dump({k: v.detach().cpu() for k, v in predictions.items()}, f)
         with open(f"{output_dir}/ground_truth_batch_{batch_idx}.pkl", "wb") as f:
@@ -698,7 +700,8 @@ def test_model_on_batch(
                 pickle.dump(attention_masks.detach().cpu(), f)
         with open(f"{output_dir}/masks_batch_{batch_idx}.pkl", "wb") as f:
             pickle.dump({k: v.detach().cpu() for k, v in masks.items()}, f)
-            
+
+    #import pdb; pdb.set_trace()
     for k, v in predictions.items():
         if k == "states":
             x= torch.argmax(v, dim=-1).to(torch.float32)
@@ -818,7 +821,7 @@ def _main(hydra_cfg):
     # Load trained model weights
     if cfg.model_path:
         logger.info(f"Loading model from: {cfg.model_path}")
-        checkpoint = torch.load(cfg.model_path, map_location=cfg.device)
+        checkpoint = torch.load(cfg.model_path, map_location=cfg.device, weights_only=False)
         if "model" in checkpoint:
             model.load_state_dict(checkpoint["model"])
         else:
@@ -943,6 +946,7 @@ def _main(hydra_cfg):
                 if "images" in batch and "images" not in masks:
                     masks["images"] = masks["states"]
 
+                print("Mask pattern: ", mask_pattern)
                 # Test the model on this batch
                 batch_results = test_model_on_batch(
                     model,
@@ -951,6 +955,7 @@ def _main(hydra_cfg):
                     batch.copy(),
                     masks,
                     batch_idx,
+                    mask_pattern=mask_pattern,
                     save_predictions=cfg.save_predictions,
                     output_dir=test_output_dir,
                 )

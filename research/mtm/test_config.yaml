@@ -34,7 +34,7 @@ args:
   mode_order: ["states", "actions"]
   mode_weights: [0.5, 0.5]
   # Path to your trained model checkpoint
-  model_path: /data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_mae/2025-08-16_18-28-54/model_10000.pt  
+  model_path: /data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_mae/2025-08-16_18-28-54/model_70000.pt
   save_predictions: true
   output_dir: "test_outputs"
   test_name: "default_test"  # Custom name for this test run
