@@ -65,6 +65,65 @@ This `test.py` script is designed to evaluate a trained MTM (Masked Trajectory M
 - `mask_patterns`: List of masking strategies to test (default: ["RANDOM"])
 - `traj_length`: Trajectory length (should match training config)
 
+## Masking Patterns
+
+The test script supports various masking patterns that evaluate different aspects of the model's capabilities:
+
+### Available Mask Patterns:
+
+1. **RANDOM**: Random masking across the trajectory
+   - Randomly masks tokens based on the specified mask ratio
+   - Tests general trajectory completion ability
+
+2. **GOAL**: Goal-reaching masking ⚠️ **HARDCODED**
+   - Shows initial and final states, masks intermediate trajectory
+   - **Currently hardcoded to mask everything before index 54**
+   - Evaluates goal-conditioned trajectory generation
+
+3. **GOAL_N**: N-step goal reaching
+   - Provides partial trajectory from start and goal state
+   - Tests ability to connect partial trajectories to goals
+
+4. **ID**: Inverse Dynamics masking ⚠️ **HARDCODED** 
+   - Given states, predict actions
+   - **Currently hardcoded to show only first 24 timesteps**
+   - Tests action prediction from state sequences
+
+5. **FD**: Forward Dynamics masking
+   - Given states and actions, predict future states
+   - Tests state prediction from action sequences
+   - Uses random intervals between indices 0-53
+
+6. **BC**: Behavioral Cloning masking
+   - Provides state-action pairs up to a random point
+   - Tests imitation learning capabilities
+
+7. **RCBC**: Return-Conditioned Behavioral Cloning
+   - Similar to BC but includes return information
+   - Tests reward-conditioned policy learning
+
+8. **BC_RANDOM**: Random Behavioral Cloning
+   - BC with additional random masking of provided tokens
+   - Tests robustness to partial observations
+
+9. **FULL_RANDOM**: Full random masking per feature
+   - Different random masks for each feature dimension
+   - Uses cosine-scheduled mask ratios
+
+10. **AUTO_MASK**: Autoregressive masking
+    - Masks future tokens in autoregressive manner
+    - Respects mode ordering (states, returns, actions)
+
+### ⚠️ Important Hardcoding Issues:
+
+Several masking patterns contain hardcoded values that may not generalize:
+
+- **GOAL masking**: Hardcoded to index 54-55 (assumes ~55 timestep trajectories)
+- **ID masking**: Hardcoded to first 24 timesteps
+- **FD masking**: Hardcoded to work with trajectories up to index 53-55
+
+These hardcoded values were designed for specific trajectory lengths and may need adjustment for different datasets or trajectory lengths.
+
 ## Configuration Structure
 
 The `test_config.yaml` inherits most settings from the original training config but uses `TestConfig` instead of `RunConfig`:
@@ -80,9 +139,33 @@ model_config:   # Identical to training config
 args:
   _target_: research.mtm.test.TestConfig  # Changed from train.RunConfig
   model_path: "/path/to/checkpoint.pt"    # Added for testing
-  test_name: "experiment_1"               # Custom name for organization
+  mask_patterns: ["RANDOM", "GOAL", "ID", "FD"]  # Choose appropriate patterns
   # ... other test parameters
 ```
+
+## Masking Pattern Usage Recommendations
+
+### For Different Trajectory Lengths:
+- **Standard (221 timesteps)**: All patterns should work, but verify hardcoded indices
+- **Shorter trajectories (<50)**: Avoid GOAL, ID patterns due to hardcoded indices
+- **Longer trajectories (>300)**: GOAL and ID patterns may not utilize full trajectory
+
+### Pattern Selection Guidelines:
+```yaml
+# Basic evaluation
+mask_patterns: ["RANDOM"]
+
+# Comprehensive evaluation 
+mask_patterns: ["RANDOM", "GOAL", "ID", "FD", "BC"]
+
+# Research/analysis focused
+mask_patterns: ["FULL_RANDOM", "AUTO_MASK", "GOAL_N"]
+```
+
+### Troubleshooting Mask-Related Issues:
+1. **"Index out of bounds" errors**: Check trajectory length vs hardcoded indices
+2. **Poor performance on GOAL/ID**: May indicate hardcoded values don't match your data
+3. **Inconsistent results**: Some patterns have random components - run multiple times
 
 ## Custom Test Naming
 

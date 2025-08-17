@@ -3,7 +3,7 @@ import torch
 import os
 import glob
 
-main_folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_test/2025-08-17_10-20-25/test_outputs/random_masking_0.8_testing"
+main_folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/mtm_test/2025-08-17_11-13-44/test_outputs/random_masking_0.8_testing"
 
 for folder in os.listdir(main_folder):
     # Get all batch files in the folder

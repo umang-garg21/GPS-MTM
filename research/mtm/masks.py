@@ -128,7 +128,12 @@ def create_goal_reaching_masks(
             end_state = rnd_state.randint(3, traj_length - 2)
         state_mask[end_state] = 1
 
+    # hard coded for now 55 is assumed as an average length of the trajectory available.
+    ### check if the network can fill in the right GOAL reaching stop points.
+    state_mask = np.zeros(traj_length)
     action_mask = np.zeros(traj_length)
+    state_mask[54:] = 1
+    action_mask[54:] = 1
     return {
         "states": torch.from_numpy(state_mask).to(device),
         "actions": torch.from_numpy(action_mask).to(device),
@@ -171,8 +176,12 @@ def create_inverse_dynamics_mask(
     traj_length: int,
     device: str,
 ) -> Dict[str, np.ndarray]:
-    state_mask = np.ones(traj_length)
+    state_mask = np.zeros(traj_length)
     action_mask = np.zeros(traj_length)
+
+    ### CHECK IF THE NETWORK CAN FILL IN THE INITIAL STATES AND ACTIONS LOOKING AT FORWARD STOP POINTS
+    state_mask[0:24] = 1
+    action_mask[0:24] = 1
     return {
         "states": torch.from_numpy(state_mask).to(device),
         "actions": torch.from_numpy(action_mask).to(device),
@@ -184,12 +193,13 @@ def create_forward_dynamics_mask(
     device: str,
 ) -> Dict[str, np.ndarray]:
     state_mask = np.zeros(traj_length)
-    index = np.random.randint(0, traj_length - 1)
-    state_mask[:index] = 1
+    action_mask = np.zeros(traj_length)
 
-    action_mask = np.ones(traj_length)
-    reward_mask = np.zeros(traj_length)
-    return_mask = np.zeros(traj_length)
+    index1 = np.random.randint(0, 53 - 1)
+    index2 = np.random.randint(index1 + 1, 55 - 1)
+    state_mask[index1:index2] = 1
+    action_mask[index1:index2] = 1
+
     return {
         "states": torch.from_numpy(state_mask).to(device),
         "actions": torch.from_numpy(action_mask).to(device),
@@ -200,9 +210,11 @@ def create_random_masks(
     data_shapes, mask_ratios, traj_length, device
 ) -> Dict[str, np.ndarray]:
     masks = {}
+
+    # KEEP THE SAME MASK FOR THE RIGHT TESTING.
+    random_mask = create_random_mask(traj_length, mask_ratios, device)
     for k in data_shapes.keys():
         # create a random mask, different mask for each modality
-        random_mask = create_random_mask(traj_length, mask_ratios, device)
         masks[k] = random_mask
     return masks
 

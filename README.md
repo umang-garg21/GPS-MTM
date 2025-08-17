@@ -18,6 +18,18 @@ The main code is located in the `mtm` folder.
    * `mask_pattterns`: A list of masking patterns that are randomly sampled. See `MaskType` under `research/mtm/masks.py` for supported options.
    * `mode_weights`: (Only applies for `AUTO_MASK`) A list of weights that samples which mode is to be the "autoregressive" one. For example, if the mode order is, `states`, `returns`, `actions`, and mode_weights = [0.2, 0.1, 0.7], then with 0.7 probability, the action token and all future tokens will be masked out.
 
+### Masking Patterns Overview
+The system supports multiple masking strategies for different evaluation scenarios:
+- **RANDOM**: General random masking
+- **GOAL**: Goal-reaching tasks (⚠️ hardcoded for ~55-step trajectories)
+- **ID**: Inverse dynamics - predict actions from states (⚠️ hardcoded for first 24 steps)
+- **FD**: Forward dynamics - predict future states
+- **BC/RCBC**: Behavioral cloning variants
+- **FULL_RANDOM**: Per-feature random masking
+- **AUTO_MASK**: Autoregressive masking
+
+⚠️ **Important**: Some patterns contain hardcoded trajectory length assumptions. See `MASKING_PATTERNS.md` for detailed reference and `research/mtm/TEST_README.md` for troubleshooting.
+
 # Code Organization
 
 ### pre-commit hooks

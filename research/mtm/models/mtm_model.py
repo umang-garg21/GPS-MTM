@@ -559,7 +559,6 @@ class MTM(nn.Module):
         batched_masks = self.process_masks(trajectories, masks)
         embedded_trajectories = self.trajectory_encoding(trajectories, attention_masks)
 
-        # import pdb; pdb.set_trace()
         try:
             encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
                 embedded_trajectories, batched_masks, attention_masks=attention_masks

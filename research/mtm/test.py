@@ -942,9 +942,6 @@ def _main(hydra_cfg):
             # Test with different mask patterns
             for mask_pattern, mask_func in zip(cfg.mask_patterns, mask_functions):
                 masks = mask_func()
-                
-                if "images" in batch and "images" not in masks:
-                    masks["images"] = masks["states"]
 
                 print("Mask pattern: ", mask_pattern)
                 # Test the model on this batch
