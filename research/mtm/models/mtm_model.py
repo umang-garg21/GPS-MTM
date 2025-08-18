@@ -628,7 +628,6 @@ class MTM(nn.Module):
         feats=torch.cat(feats, dim=1)
         src_key_padding_mask=torch.cat(src_key_padding_mask, dim=1).to(feats.device)
 
-        import pdb; pdb.set_trace()
         # ONLY SELECTED SORTED FEATURES ARE PASSED TO THE ENCODER
         x = self.encoder(feats, src_key_padding_mask=src_key_padding_mask)  # src key padding mask to ignore padded values
         
