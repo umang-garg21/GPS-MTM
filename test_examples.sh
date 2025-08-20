@@ -26,3 +26,14 @@ CUDA_VISIBLE_DEVICES=7 python research/mtm/test.py \
     ++args.traj_length="278" \
 
 ## GEOLIFE
+CUDA_VISIBLE_DEVICES=0 python research/mtm/test.py \
+    +exp_traj=traj_cont_statediscrete_actcont \
+    ++datasets.env_name="gps_traj_masked_modelling" \
+    ++datasets.replay_buffer_dir="/data/home/umang/Trajectory_project/anomaly_traj_data/Geolife/saved_agent_episodes_new/obs198_act11" \
+    ++args.model_path="/data/home/umang/Trajectory_project/GPS-MTM/outputs/train_geolife/2025-08-19_20-06-32/model_10000.pt"\
+    ++hydra.job.name="test_geolife_10000" \
+    ++args.mask_ratios="[0.5]" \
+    ++args.mask_patterns="[\"RANDOM\", \"GOAL\", \"ID\", \"FD\"]" \
+    ++args.test_name="random_masking_0.5_testing" \
+    ++args.traj_length="2549" \
+    ++args.batch_size="5"

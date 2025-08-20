@@ -5,7 +5,7 @@ defaults:
 tokenizers:
     states:
       _target_: research.mtm.tokenizers.discrete_identity.DiscreteIdentity.create
-      num_classes: 4  # Add the num_classes parameter 
+      num_classes: 198  # Add the num_classes parameter 
     actions:
       _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
 

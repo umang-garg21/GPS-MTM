@@ -5,7 +5,7 @@ import glob
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, classification_report
 import numpy as np
 
-main_folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/test_UA_atlanta_hunger_outliers/2025-08-19_14-57-54/test_outputs/random_masking_0.5_testing"
+main_folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/test_geolife_10000/2025-08-20_08-19-12/test_outputs/random_masking_0.5_testing"
 
 for folder in os.listdir(main_folder):
     # Get all batch files in the folder
@@ -98,16 +98,18 @@ for folder in os.listdir(main_folder):
     # Get the most frequently top-k repeated in ground_truth_list_states
     unique, counts = torch.unique(ground_truth_list_states, return_counts=True)
     top_1_ground_truth = unique[torch.topk(counts, k=1).indices]
-    top_4_ground_truth = unique[torch.topk(counts, k=4).indices]
-    # top_10_ground_truth = unique[torch.topk(counts, k=10).indices]
-    # top_20_ground_truth = unique[torch.topk(counts, k=20).indices]
+    top_5_ground_truth = unique[torch.topk(counts, k=5).indices]
+    top_10_ground_truth = unique[torch.topk(counts, k=10).indices]
+    top_20_ground_truth = unique[torch.topk(counts, k=20).indices]
 
     print(f"\nTop-K Class Analysis:")
     print(f"Top 1 most frequent class: {top_1_ground_truth}")
-    print(f"Top 4 most frequent classes: {top_4_ground_truth}")
+    print(f"Top 5 most frequent classes: {top_5_ground_truth}")
+    print(f"Top 10 most frequent classes: {top_10_ground_truth}")
+    print(f"Top 20 most frequent classes: {top_20_ground_truth}")
 
     # Get the number of correct predictions for classes in top-k ground truth
-    top_k = [top_1_ground_truth, top_4_ground_truth]
+    top_k = [top_1_ground_truth, top_5_ground_truth, top_10_ground_truth, top_20_ground_truth]
     for i in range(len(top_k)):
         filtered_gt = ground_truth_list_states[(ground_truth_list_states.unsqueeze(-1) == top_k[i]).any(dim=-1)]
         filtered_pred = predictions_list_states[(ground_truth_list_states.unsqueeze(-1) == top_k[i]).any(dim=-1)]
@@ -115,8 +117,8 @@ for folder in os.listdir(main_folder):
         # Get the number of correct predictions and accuracy
         correct_predictions = (filtered_pred == filtered_gt).sum()
         accuracy = correct_predictions / filtered_gt.numel()
-        k_val = "1" if i == 0 else "4"
-        print(f"Top-{k_val} accuracy: {accuracy.item():.4f} ({correct_predictions.item()}/{filtered_gt.numel()} correct predictions)")
+        k_vals = ["1", "5", "10", "20"]
+        print(f"Top-{k_vals[i]} accuracy: {accuracy.item():.4f} ({correct_predictions.item()}/{filtered_gt.numel()} correct predictions)")
 
     print("\nDetailed Classification Report:")
     print(classification_report(gt_numpy, pred_numpy))
@@ -152,14 +154,16 @@ for folder in os.listdir(main_folder):
 
         f.write("\nTop-K Class Analysis:\n")
         f.write(f"Top 1 most frequent class: {top_1_ground_truth}\n")
-        f.write(f"Top 4 most frequent classes: {top_4_ground_truth}\n")
+        f.write(f"Top 5 most frequent classes: {top_5_ground_truth}\n")
+        f.write(f"Top 10 most frequent classes: {top_10_ground_truth}\n")
+        f.write(f"Top 20 most frequent classes: {top_20_ground_truth}\n")
         for i in range(len(top_k)):
             filtered_gt = ground_truth_list_states[(ground_truth_list_states.unsqueeze(-1) == top_k[i]).any(dim=-1)]
             filtered_pred = predictions_list_states[(ground_truth_list_states.unsqueeze(-1) == top_k[i]).any(dim=-1)]
             correct_predictions = (filtered_pred == filtered_gt).sum()
             accuracy = correct_predictions / filtered_gt.numel()
-            k_val = "1" if i == 0 else "4"
-            f.write(f"Top-{k_val} accuracy: {accuracy.item():.4f} ({correct_predictions.item()}/{filtered_gt.numel()} correct predictions)\n")
+            k_vals = ["1", "5", "10", "20"]
+            f.write(f"Top-{k_vals[i]} accuracy: {accuracy.item():.4f} ({correct_predictions.item()}/{filtered_gt.numel()} correct predictions)\n")
         
         f.write("\nDetailed Classification Report:\n")
         f.write(classification_report(gt_numpy, pred_numpy))
