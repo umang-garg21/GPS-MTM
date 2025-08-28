@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+    - override /datasets: traj
+
+
+tokenizers:
+    states:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+    actions:
+      _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+
+dataset:
+    use_rewards: False
+
+wandb:
+    project: "traj_01_04"
+    resume: allow

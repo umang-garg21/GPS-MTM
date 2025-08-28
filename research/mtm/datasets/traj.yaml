@@ -6,7 +6,6 @@ seq_steps: ???
 env_name: gps_trajenv-v0
 seed: 0
 replay_buffer_dir: "/data/home/umang/Trajectory_project/anomaly_traj_data/haystac_anomaly_data1/saved_agent_episodes/obs4_act1"
-train_max_size: 1000000
-# train_max_size: 10000
-val_max_size: 10000
+train_max_size: 50000000
+val_max_size: 50000000
 num_workers: ${args.n_workers}

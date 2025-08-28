@@ -92,6 +92,14 @@ def eval_fd(
     seq_len = eval_batch["actions"].shape[1]
     device = eval_batch["states"].device
     assert seq_len >= 2, "Forward dynamics eval only works for seq_len=2"
+    
+    # Check for empty sequences
+    attention_masks = eval_batch.get("attention_masks", None)
+    if attention_masks is not None:
+        seq_lengths = attention_masks[0].sum(dim=-1) if isinstance(attention_masks, tuple) else attention_masks.sum(dim=-1)
+        if (seq_lengths == 0).any():
+            logger.warning("Skipping forward dynamics evaluation due to empty sequences")
+            return {"eval/fd_state_error_r=1": 0.0}
 
     # Given initial state and all actions. Predict future states.
     obs_mask1 = torch.ones(seq_len, device=device)
@@ -132,6 +140,14 @@ def eval_id(
     B, T, S = eval_batch["states"].shape
     device = eval_batch["states"].device
     assert seq_len >= 2, "Forward dynamics eval only works for seq_len=2"
+    
+    # Check for empty sequences
+    attention_masks = eval_batch.get("attention_masks", None)
+    if attention_masks is not None:
+        seq_lengths = attention_masks.sum(dim=-1) if not isinstance(attention_masks, tuple) else attention_masks[0].sum(dim=-1)
+        if (seq_lengths == 0).any():
+            logger.warning("Skipping inverse dynamics evaluation due to empty sequences")
+            return {"eval/id_action_error_r=1": 0.0}
 
     # Given all states. Predict second to last action.
     obs_mask1 = torch.ones(seq_len, device=device)
@@ -585,16 +601,29 @@ def evaluate(
     masks: Dict[str, torch.Tensor],
 ) -> Dict[str, Any]:
     attention_masks = val_batch.pop("attention_masks", None)
+    
+    # Check for empty sequences in validation batch
+    if attention_masks is not None:
+        seq_lengths = attention_masks.sum(dim=-1)
+        if (seq_lengths == 0).any():
+            logger.warning("Skipping evaluation due to empty sequences in validation batch")
+            return {
+                "val/loss": 0.0,
+                "val/states_loss": 0.0,
+                "val/actions_loss": 0.0
+            }
+    
     encoded_batch = tokenizer_manager.encode(val_batch, attention_masks=attention_masks)
 
-    predicted_trajectories = model(encoded_batch, masks, attention_mask=attention_masks)
+    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
 
     model_without_ddp = model.module if hasattr(model, "module") else model
     (
         loss,
         losses_dict,
-        masked_losses,
+        total_masked_c_loss,
         masked_c_losses,
+        masked_c_loss_per_feature_k,
     ) = MTM.forward_loss(
         encoded_batch,
         predicted_trajectories,
@@ -609,8 +638,7 @@ def evaluate(
     log_dict = {"val/val_loss": loss.item()}
     for k, v in losses_dict.items():
         log_dict[f"val/full_loss_{k}"] = v.item()
-    for k, v in masked_losses.items():
-        log_dict[f"val/masked_loss_{k}"] = v.item()
+    log_dict["val/total_masked_c_loss"] = total_masked_c_loss.item()
     for k, v in masked_c_losses.items():
         log_dict[f"val/masked_c_loss_{k}"] = v.item()
 
@@ -659,6 +687,17 @@ def train_one_batch(
 ) -> Dict[str, Any]:
     # Include attention masks in encoding
     attention_masks = batch.pop("attention_mask", None)
+    
+    # Validate attention masks for empty sequences
+    if attention_masks is not None:
+        seq_lengths = attention_masks.sum(dim=-1)
+        if (seq_lengths == 0).any():
+            logger.warning(f"Found empty sequences in batch. Sequence lengths: {seq_lengths}")
+            # Skip this batch by returning dummy loss values
+            return {
+                "train/train_loss": 0.0,
+                "train/lr": scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else 0.0001
+            }
 
     #clone the batch
     batch_clone = {k: v.clone() for k, v in batch.items()}
@@ -1054,67 +1093,178 @@ def _main(hydra_cfg):
 
         if hydra_cfg.state_only_dataset is not None and step % (cfg.tsp_ratio + 1) == 0:
             s_t = time.time()
-            try:
-                state_only_batch = next(state_only_iter)
-            except StopIteration:
-                state_only_iter = iter(state_only_train_loader)
-                state_only_batch = next(state_only_iter)
+            # Keep trying until we get a valid state-only batch
+            valid_state_batch_found = False
+            state_attempts = 0
+            max_state_attempts = 10
+            
+            while not valid_state_batch_found and state_attempts < max_state_attempts:
+                try:
+                    state_only_batch = next(state_only_iter)
+                except StopIteration:
+                    state_only_iter = iter(state_only_train_loader)
+                    state_only_batch = next(state_only_iter)
 
-            state_only_batch = {
-                k: v.to(cfg.device, non_blocking=True)
-                for k, v in state_only_batch.items()
-            }
-            # ranodmly select mask
-            while True:
-                masks = random.choice(mask_functions)()
+                state_only_batch = {
+                    k: v.to(cfg.device, non_blocking=True)
+                    for k, v in state_only_batch.items()
+                }
+                
+                # Get attention mask for state-only batch
+                state_attention_mask = state_only_batch.get("attention_mask", None) or state_only_batch.get("att_mask", None)
+                
+                # Validate state-only batch for empty sequences
+                if state_attention_mask is not None:
+                    state_seq_lengths = state_attention_mask.sum(dim=-1)
+                    if (state_seq_lengths > 0).all():
+                        valid_state_batch_found = True
+                    else:
+                        logger.warning(f"Skipping state-only batch with empty sequences. Sequence lengths: {state_seq_lengths}")
+                        state_attempts += 1
+                        continue
+                else:
+                    valid_state_batch_found = True
+                
+                state_attempts += 1
+            
+            if not valid_state_batch_found:
+                logger.warning(f"Could not find valid state-only batch after {max_state_attempts} attempts. Skipping state-only training this step.")
+            else:
+                # Create mask functions for state-only training with attention mask
+                state_mask_functions_map = create_mask_functions_with_attention(state_attention_mask)
+                state_mask_functions = [state_mask_functions_map[MaskType[i]] for i in cfg.mask_patterns]
+                
+                # randomly select mask
+                while True:
+                    masks = random.choice(state_mask_functions)()
 
-                # Modify masks to respect attention_masks
-                if "att_mask" in batch:
-                    for key in masks.keys():
-                        if key in batch:
-                            masks[key] *= batch["att_mask"]
+                    # check that the mask for states is not all ones
+                    if masks["states"].sum() != np.prod(masks["states"].shape):
+                        break
+                masks["actions"] = masks["actions"] * 0  # ignore all actions
+                state_only_batch["actions"] = (
+                    state_only_batch["actions"] * 0
+                )  # ignore all actions
 
-                # check that the mask for states is not all ones
-                if masks["states"].sum() != np.prod(masks["states"].shape):
-                    break
-            masks["actions"] = masks["actions"] * 0  # ignore all actions
-            state_only_batch["actions"] = (
-                state_only_batch["actions"] * 0
-            )  # ignore all actions
-
-            # check if state mask is all ones
-            state_only_log_dict = train_one_batch(
-                model,
-                optimizer,
-                scheduler,
-                state_only_tokenizer_manager,
-                discrete_map,
-                state_only_batch,
-                masks,
-                loss_keys=["states", "actions"],
-            )
-            for k, v in state_only_log_dict.items():
-                log_dict[f"state_only_{k}"] = v
-            log_dict["time/state_only_train"] = time.time() - s_t
+                # check if state mask is all ones
+                state_only_log_dict = train_one_batch(
+                    model,
+                    optimizer,
+                    scheduler,
+                    state_only_tokenizer_manager,
+                    discrete_map,
+                    state_only_batch,
+                    masks,
+                    loss_keys=["states", "actions"],
+                )
+                for k, v in state_only_log_dict.items():
+                    log_dict[f"state_only_{k}"] = v
+                log_dict["time/state_only_train"] = time.time() - s_t
         else:
             start_time = time.time()
-            try:
-                batch = next(batch_iter)
-            except StopIteration:
-                batch_iter = iter(train_loader)
-                batch = next(batch_iter)
-                epoch += 1
+            # Keep trying until we get a valid batch with non-empty sequences
+            valid_batch_found = False
+            max_attempts = 10
+            attempts = 0
+            
+            while not valid_batch_found and attempts < max_attempts:
+                try:
+                    batch = next(batch_iter)
+                except StopIteration:
+                    batch_iter = iter(train_loader)
+                    batch = next(batch_iter)
+                    epoch += 1
 
-            # cycle between different types
+                # Check if batch has valid sequence lengths
+                # Get attention mask for proper variable-length trajectory handling
+                attention_mask = batch.get("attention_mask", None)
+                
+                # Validate sequence lengths - skip empty sequences
+                if attention_mask is not None:
+                    # Check if any sequence has length > 0
+                    seq_lengths = attention_mask.sum(dim=-1)  # Sum over sequence dimension
+                    if (seq_lengths > 0).all():  # All sequences in batch must have length > 0
+                        valid_batch_found = True
+                    else:
+                        logger.warning(f"Skipping batch with empty sequences. Sequence lengths: {seq_lengths}")
+                        attempts += 1
+                        continue
+                else:
+                    # If no attention mask, assume all sequences are valid (fallback for non-variable-length data)
+                    valid_batch_found = True
+                
+                attempts += 1
+            
+            if not valid_batch_found:
+                logger.error(f"Could not find valid batch after {max_attempts} attempts. Skipping this step.")
+                continue
+            
+            # Create mask functions dynamically with access to attention_mask
+            def create_mask_functions_with_attention(attention_mask):
+                return {
+                    MaskType.RANDOM: lambda: create_random_masks(
+                        data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device
+                    ),
+                    MaskType.FULL_RANDOM: lambda: create_full_random_masks(
+                        data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device
+                    ),
+                    MaskType.AUTO_MASK: lambda: create_random_autoregressize_mask(
+                        data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device, cfg.mode_weights, cfg.mode_order,
+                    ),
+                    MaskType.RCBC: lambda: create_rcbc_mask(cfg.traj_length, cfg.device),
+                    MaskType.GOAL: lambda: maybe_add_rew_to_mask(
+                        cfg.traj_length,
+                        cfg.device,
+                        create_goal_reaching_masks,
+                        has_rew,
+                        has_img,
+                        has_ret,
+                        attention_mask=attention_mask,
+                    ),
+                    MaskType.ID: lambda: maybe_add_rew_to_mask(
+                        cfg.traj_length,
+                        cfg.device,
+                        create_inverse_dynamics_mask,
+                        has_rew,
+                        has_img,
+                        has_ret,
+                        attention_mask=attention_mask,
+                    ),
+                    MaskType.FD: lambda: maybe_add_rew_to_mask(
+                        cfg.traj_length,
+                        cfg.device,
+                        create_forward_dynamics_mask,
+                        has_rew,
+                        has_img,
+                        has_ret,
+                        attention_mask=attention_mask,
+                    ),
+                    MaskType.BC: lambda: maybe_add_rew_to_mask(
+                        cfg.traj_length,
+                        cfg.device,
+                        create_bc_mask,
+                        has_rew,
+                        has_img,
+                        has_ret,
+                        attention_mask=attention_mask,
+                    ),
+                    MaskType.BC_RANDOM: lambda: maybe_add_rew_to_mask(
+                        cfg.traj_length,
+                        cfg.device,
+                        lambda l, d: create_random_bc_masks(l, d, data_shapes, p=0.5),
+                        has_rew,
+                        has_img,
+                        has_ret,
+                        attention_mask=attention_mask,
+                    ),
+                }
 
-            # ranodmly select mask
-            masks = random.choice(mask_functions)()
-            # Modify masks to respect attention_masks
-            #if "attention_mask" in batch:
-            #    for key in masks.keys():
-            #        if key in batch:
-            #            masks[key] *= batch["attention_masks"]
-
+            # Create mask functions with current attention mask
+            current_mask_functions_map = create_mask_functions_with_attention(attention_mask)
+            current_mask_functions = [current_mask_functions_map[MaskType[i]] for i in cfg.mask_patterns]
+            
+            # randomly select mask
+            masks = random.choice(current_mask_functions)()
             if "images" in batch and "images" not in masks:
                 masks["images"] = masks["states"]
 
@@ -1207,7 +1357,7 @@ def _main(hydra_cfg):
                     max_log[f"max_{k}"] = eval_max[k]
 
             log_dict.update(max_log)
-            log_metrics({f"p_{k}": v for k, v in max_log.items()}, step=step)
+            wandb_logger.log({f"p_{k}": v for k, v in max_log.items()}, step=step)
             # wandb_logger.log(
             #    {f"p_{k}": v for k, v in max_log.items()},
             #    step=0,  # use step 0 to log to the same bar plot

@@ -181,11 +181,6 @@ class MTMConfig:
     def create(self, data_shape, traj_length):
         return MTM(data_shape, traj_length, self)
 
-# Define a custom activation function
-class ClippedReLU(nn.Module):
-    def forward(self, x):
-        return torch.clamp(F.relu(x), max=1)  # ReLU ensures >=0, clamping restricts to <=1
-    
 class MTM(nn.Module):
     def __init__(
         self,
@@ -270,28 +265,13 @@ class MTM(nn.Module):
         )
 
         self.output_head_dict = nn.ModuleDict()
-        # for key, shape in data_shapes.items():
-        #     self.output_head_dict[key] = nn.Sequential(
-        #         nn.LayerNorm(self.n_embd),
-        #         nn.Linear(self.n_embd, self.n_embd),
-        #         #nn.GELU(),
-        #         nn.RELU(),
-        #         nn.Linear(self.n_embd, shape[-1]),
-        #     )
-
         for key, shape in data_shapes.items():
-            layers = [
+            self.output_head_dict[key] = nn.Sequential(
                 nn.LayerNorm(self.n_embd),
                 nn.Linear(self.n_embd, self.n_embd),
                 nn.GELU(),
                 nn.Linear(self.n_embd, shape[-1]),
-            ]
-            
-            if key == "actions":
-                layers.append(ClippedReLU())  # Use the custom activation for "actions"
-
-            self.output_head_dict[key] = nn.Sequential(*layers)
-
+            )
         pos_embed = get_1d_sincos_pos_embed_from_grid(self.n_embd, self.max_len)
         pe = torch.from_numpy(pos_embed).float()[None, :, None, :] / 2.0
         self.register_buffer("pos_embed", pe)
@@ -328,7 +308,6 @@ class MTM(nn.Module):
         masked_c_losses = {}
         masked_c_loss_per_feature_k = {}
 
-        
         for key in targets.keys():
             target = targets[key]
             pred = preds[key]
@@ -344,90 +323,34 @@ class MTM(nn.Module):
             if len(mask.shape) == 1:
                 mask = mask[:, None].repeat(1, target.shape[2])
 
-            # import pdb; pdb.set_trace()
             if discrete_map[key]:
                 raw_loss = nn.CrossEntropyLoss(reduction="none")(
                     pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
                 ).unsqueeze(3)
-            
             else:
-                # import pdb; pdb.set_trace()
                 if norm == "l2":
                     target = target / torch.norm(target, dim=-1, keepdim=True)
-                raw_loss = nn.MSELoss(reduction="none")(pred, target)/100
-                #raw_loss=nn.CrossEntropyLoss(reduction="none")(pred, target)
-
-                # import pdb; pdb.set_trace()
-                # # Convert time components to total minutes for both sets of indices
-                # pred_minutes_1 = time_to_minutes(pred[:, :, :, 0], pred[:, :, :, 1], pred[:, :, :, 2])
-                # target_minutes_1 = time_to_minutes(target[:, :, :, 0], target[:, :, :, 1], target[:, :, :, 2])
-
-                # pred_minutes_2 = time_to_minutes(pred[:, :, :, 3], pred[:, :, :, 4], pred[:, :, :, 5])
-                # target_minutes_2 = time_to_minutes(target[:, :, :, 3], target[:, :, :, 4], target[:, :, :, 5])
-
-                # # Compute the loss in terms of difference in minutes for both sets of indices
-                # minute_loss_1 = nn.MSELoss(reduction="none")(pred_minutes_1, target_minutes_1)
-                # minute_loss_2 = nn.MSELoss(reduction="none")(pred_minutes_2, target_minutes_2)
-
-                # # Combine the losses (you can adjust the weights as needed)
-                # combined_loss = minute_loss_1 + minute_loss_2
+                raw_loss = nn.MSELoss(reduction="none")(pred, target)
                 
-                # # pred.shape is torch.Size([128, 221, 1, 1]) and target.shape is torch.Size([128, 221, 1, 1])
-                # combined_loss = raw_loss.sum(dim=-1, keepdim=True)  # Sum over the last dimension
-                
-                # # import pdb; pdb.set_trace()
-
-                # # Use combined_loss for further computations
-                # raw_loss = combined_loss.unsqueeze(-1)
-
-            if attention_masks is not None:
-                # Actual loss is only upto attention_mask length. Focus the model to learn relevant tokens not 0s.
-                actual_loss = raw_loss * attention_masks.unsqueeze(-1).unsqueeze(-1)
-            else:
-                actual_loss = raw_loss
+            #Actual loss is only upto attention_mask length. Focus the model to learn relevant tokens not 0s.
+            actual_loss= raw_loss * attention_masks.unsqueeze(-1).unsqueeze(-1)
 
             # Track masked loss to know how mask tokens are performing.
             if mask.sum() == 0:
                 masked_c_loss = torch.tensor(0.0).to(raw_loss.device)
-                masked_c_loss_per_feature_k[key] = torch.tensor(0.0).to(raw_loss.device)
+
             else:
-                # Create a copy of mask to avoid modifying the original
-                mask_work = mask.clone()
-                
-                # Ensure mask and raw_loss have compatible dimensions by expanding mask as needed
-                # First, handle the case where mask might be missing the batch dimension
-                if len(mask_work.shape) < len(raw_loss.shape):
-                    # If mask is missing batch dimension, add it at the beginning
-                    if mask_work.shape[0] != raw_loss.shape[0]:
-                        # Add batch dimension at the beginning
-                        mask_work = mask_work.unsqueeze(0)
-                        # Expand to match batch size
-                        mask_work = mask_work.expand(raw_loss.shape[0], *mask_work.shape[1:])
-                    
-                    # Now expand remaining dimensions to match raw_loss
-                    while len(mask_work.shape) < len(raw_loss.shape):
-                        mask_work = mask_work.unsqueeze(-1)
-                
-                # Apply mask to raw_loss
-                masked_loss = raw_loss * mask_work
-                
-                # Calculate masked loss (average loss over masked positions)
-                masked_c_loss = masked_loss.sum() / mask.sum()
-                
-                # Calculate per-feature masked loss
-                # Sum over all dimensions except the feature dimension (dimension 2)
-                if len(raw_loss.shape) == 4:  # (batch, seq, feature, 1)
-                    masked_c_loss_per_feature_k[key] = masked_loss.sum(dim=(0, 1, 3)) / mask.sum()
-                else:
-                    # For other shapes, take mean over batch dimension
-                    masked_c_loss_per_feature_k[key] = masked_loss.mean(dim=0) if masked_loss.dim() > 1 else masked_loss
+                masked_c_loss_per_feature_k[key]=(
+                    (raw_loss * mask[:, :, :, None]).sum(dim=(1, 2)) / mask.sum()
+                ).mean(dim=0)
+                masked_c_loss = (
+                    (raw_loss * mask[:, :, :, None]).sum(dim=(1, 2, 3)) / mask.sum()
+                ).mean()
             
             #replaced raw_loss with actual loss.
             losses[key] = actual_loss.mean(dim=(2, 3)).mean()
             masked_c_losses[key] = masked_c_loss
 
-        print("Losses: ", losses)
-        print("Masked Losses: ", masked_c_losses)
         if loss_keys is None:
             total_loss = torch.sum(torch.stack(list(losses.values())))
             total_masked_c_loss = torch.sum(torch.stack(list(masked_c_losses.values())))
@@ -494,9 +417,8 @@ class MTM(nn.Module):
             # The use_mask is a 2D tensor with shape (batch_size, seq_len)
             # The output will be a 2D tensor with shape (batch_size, seq_len)
             updated_attention_masks = attention_masks * use_mask
-            return updated_attention_masks
-        else:
-            return None
+
+        return updated_attention_masks
     
     def trajectory_encoding(
         self, trajectories, attention_masks=None
@@ -558,18 +480,12 @@ class MTM(nn.Module):
     def forward(self, trajectories, masks, attention_masks=None):
         batched_masks = self.process_masks(trajectories, masks)
         embedded_trajectories = self.trajectory_encoding(trajectories, attention_masks)
-        try:
-            encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
-                embedded_trajectories, batched_masks, attention_masks=attention_masks
-            )
-        except Exception as e:
-            import traceback; traceback.print_exc()
-            # import pdb; pdb.set_trace()
-            raise e  # Re-raise the exception instead of continuing
+
+        encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
+            embedded_trajectories, batched_masks, attention_masks=attention_masks
+        )
         # extract the trajectories
-        extracted_trajectories = self.forward_decoder(encoded_trajectories, ids_restore, keep_length, attention_masks=attention_masks)
-        extracted_trajectories['actions'][..., 0] = trajectories['actions'][..., 0]  # first action is always the same
-        return extracted_trajectories
+        return self.forward_decoder(encoded_trajectories, ids_restore, keep_length, attention_masks=attention_masks)
 
     def encode(self, trajectories, masks) -> Dict[str, torch.Tensor]:
         batched_masks = self.process_masks(trajectories, masks)
@@ -595,12 +511,7 @@ class MTM(nn.Module):
 
             # Updated attention masks include 
             updated_att_masks[k] = self.attention_mask_expand(traj, mask, attention_masks)
-            if updated_att_masks[k] is not None:
-                x, ids_restore[k], keep_len[k] = self._index_and_concat(traj, updated_att_masks[k])
-            else:
-                # If no attention masks, use the original mask but expand it to batch size
-                batch_mask = mask.repeat(traj.shape[0], 1)
-                x, ids_restore[k], keep_len[k] = self._index_and_concat(traj, batch_mask)
+            x, ids_restore[k], keep_len[k] = self._index_and_concat(traj, updated_att_masks[k])
             #x, ids_restore[k], keep_len[k] = self._index(traj, mask)
             #stacked_attention_masks= attention_masks
             max_len[k]=max(keep_len[k])
@@ -726,21 +637,13 @@ class MTM(nn.Module):
         concat_trajectories = torch.cat(
             [decoder_embedded_trajectories[k] for k in keys], dim=1
         )
-
         # concat attention masks number of keys times, dim=1
         att_mask_src_key = []
         for k in keys:
             att_mask_src_key.append(attention_masks)
+        att_mask_src_key = torch.cat(att_mask_src_key, dim=1)
         
-        if attention_masks is not None:
-            att_mask_src_key = torch.cat(att_mask_src_key, dim=1)
-            x = self.decoder(concat_trajectories, src_key_padding_mask=att_mask_src_key) # Apply attention mask here
-        else:
-            att_mask_src_key = None
-            x = self.decoder(concat_trajectories)
-        
-       
-        
+        x = self.decoder(concat_trajectories, src_key_padding_mask=att_mask_src_key) # Apply attention mask here
         extracted_trajectories = {}
         pos = 0
         for k in keys:
@@ -872,7 +775,3 @@ class MTM(nn.Module):
         ]
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas)
         return optimizer
-
-def time_to_minutes(day, hour, minute):
-    # Convert day, hour, and minute to total minutes
-    return (day * 24 * 60 + hour * 60 + minute)/(24*60.0)

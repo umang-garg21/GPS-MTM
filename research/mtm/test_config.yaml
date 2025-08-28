@@ -19,6 +19,13 @@ model_config:
   loss_keys: null
   latent_dim: null
 
+tokenizers:
+  states:
+    _target_: research.mtm.tokenizers.discrete_identity.DiscreteIdentity.create
+    num_classes: 28   # Number of classes for discrete tokenizer
+  actions:
+    _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+
 state_only_dataset: null
 
 # Test-specific arguments
@@ -38,6 +45,7 @@ args:
   save_predictions: true
   output_dir: "test_outputs"
   test_name: "default_test"  # Custom name for this test run
+  load_test_only: true  # Only load validation data for testing (saves memory and time)
 
 # WandB configuration for test logging
 wandb:

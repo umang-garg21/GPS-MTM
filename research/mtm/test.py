@@ -542,6 +542,10 @@ class TestConfig:
     test_name: str = "default_test"
     """Custom name for this test run."""
 
+    load_test_only: bool = True
+    """Whether to load only test/validation data (True) or both train and validation data (False).
+    Setting to True saves memory and loading time during testing."""
+
 @torch.inference_mode()
 def evaluate(
     model: MTM,
@@ -554,7 +558,7 @@ def evaluate(
     attention_masks = val_batch.pop("attention_masks", None)
     encoded_batch = tokenizer_manager.encode(val_batch, attention_masks=attention_masks)
 
-    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
+    predicted_trajectories = model(encoded_batch, masks)
 
     model_without_ddp = model.module if hasattr(model, "module") else model
     (
@@ -649,14 +653,89 @@ def test_model_on_batch(
     """Test the model on a single batch and optionally save predictions."""
     # Include attention masks in encoding
     attention_masks = batch.pop("attention_mask", None)
+    
+    # Additional check for empty sequences (secondary validation)
+    if attention_masks is not None:
+        seq_lengths = attention_masks.sum(dim=-1)
+        if (seq_lengths == 0).any():
+            print(f"Warning: Empty sequences detected in test_model_on_batch for batch {batch_idx}")
+            # Return dummy results for empty batch
+            return {
+                "test/test_loss": 0.0,
+                "test/mse_sum": 0.0,
+                "test/ce_sum": 0.0,
+                "mask_pattern": mask_pattern,
+                "batch_idx": batch_idx,
+                "skipped": True
+            }
 
     # Clone the batch
     batch_clone = {k: v.clone() for k, v in batch.items()}
     encoded_batch = tokenizer_manager.encode(batch_clone, attention_masks=attention_masks)
     _ = masks.pop("attention_masks", None)
     
+    # DEBUG: Print mask information
+    print(f"\n=== DEBUG MASK INFO for batch {batch_idx} ===")
+    for k, mask in masks.items():
+        if attention_masks is not None:
+            valid_positions = attention_masks.sum().item()
+            # CRITICAL: Check mask convention
+            visible_positions = ((mask == 1) & (attention_masks == 1)).sum().item()
+            masked_positions = ((mask == 0) & (attention_masks == 1)).sum().item()
+            
+            print(f"{k}: valid={valid_positions}, VISIBLE(mask=1)={visible_positions}, MASKED(mask=0)={masked_positions}")
+            print(f"{k} mask convention: 1=VISIBLE/GIVEN, 0=MASKED/TO_PREDICT")
+            print(f"{k} mask pattern (first 20): {mask[:20]}")
+            print(f"{k} attention mask (first 20): {attention_masks[0][:20]}")
+            
+            # Verify that we have some masked positions
+            if masked_positions == 0:
+                print(f"WARNING: No masked positions for {k}! This explains 100% accuracy.")
+            
+        else:
+            visible_positions = (mask == 1).sum().item()
+            masked_positions = (mask == 0).sum().item()
+            total_positions = len(mask)
+            print(f"{k}: total={total_positions}, VISIBLE(mask=1)={visible_positions}, MASKED(mask=0)={masked_positions}")
+            print(f"{k} mask pattern (first 20): {mask[:20]}")
+            
+            if masked_positions == 0:
+                print(f"WARNING: No masked positions for {k}! This explains 100% accuracy.")
+    print("=== END DEBUG MASK INFO ===\n")
+    
     # Forward pass with attention masks
-    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
+    predicted_trajectories = model(encoded_batch, masks)
+    
+    # DEBUG: Check what the model actually sees vs what it predicts
+    print(f"\n=== DEBUG MODEL INPUT/OUTPUT for batch {batch_idx} ===")
+    
+    # Check the original input vs the encoded input
+    for k in batch.keys():
+        if k in encoded_batch:
+            print(f"\n{k}:")
+            print(f"  Original shape: {batch[k].shape}")
+            print(f"  Encoded shape: {encoded_batch[k].shape}")
+            print(f"  Prediction shape: {predicted_trajectories[k].shape}")
+            
+            # Show some sample values for first sequence
+            print(f"  Original values (first 5): {batch[k][0, :5].flatten()}")
+            print(f"  Predicted values (first 5): {predicted_trajectories[k][0, :5].flatten()}")
+            
+            # Check if the model is just copying visible tokens
+            mask = masks[k]
+            visible_mask = (mask == 1)
+            if attention_masks is not None:
+                visible_mask = visible_mask & (attention_masks[0] == 1)
+            
+            if visible_mask.sum() > 0:
+                # For visible positions, compare input vs output to see if model is just copying
+                visible_positions = visible_mask.nonzero().flatten()[:3]  # First 3 visible positions
+                for pos in visible_positions:
+                    orig_val = batch[k][0, pos]
+                    pred_val = predicted_trajectories[k][0, pos]
+                    print(f"  Visible pos {pos}: original={orig_val} vs predicted={pred_val}")
+    
+    print("=== END DEBUG MODEL INPUT/OUTPUT ===\n")
 
     # Compute the loss
     model_without_ddp = model.module if hasattr(model, "module") else model
@@ -701,32 +780,76 @@ def test_model_on_batch(
         with open(f"{output_dir}/masks_batch_{batch_idx}.pkl", "wb") as f:
             pickle.dump({k: v.detach().cpu() for k, v in masks.items()}, f)
 
-    #import pdb; pdb.set_trace()
+    # Calculate accuracy metrics only for masked/predicted positions
+    print(f"\n=== DEBUG ACCURACY CALCULATION for batch {batch_idx} ===")
     for k, v in predictions.items():
         if k == "states":
-            x= torch.argmax(v, dim=-1).to(torch.float32)
-            y= torch.argmax(batch[k], dim=-1).to(torch.float32)
-            _ce = F.cross_entropy(x[attention_masks == 1],y[attention_masks == 1], reduction='sum') / (attention_masks.sum()).item()
-            ce_loss += _ce
+            # For discrete states: calculate cross-entropy and accuracy for MASKED positions only
+            mask_positions = (masks[k] == 0) & (attention_masks == 1)  # Masked positions that are valid
+            
+            print(f"States - Total mask positions: {mask_positions.sum().item()}")
+            print(f"States - Prediction shape: {v.shape}, Ground truth shape: {batch[k].shape}")
+            
+            if mask_positions.sum() > 0:
+                # v is logits, batch[k] should be class indices
+                predicted_logits = v[mask_positions]  # Shape: [num_masked_tokens, num_classes]
+                ground_truth_indices = batch[k][mask_positions].long()  # Shape: [num_masked_tokens]
+                
+                print(f"States - Predicted logits shape: {predicted_logits.shape}")
+                print(f"States - Ground truth indices shape: {ground_truth_indices.shape}")
+                print(f"States - Ground truth sample: {ground_truth_indices[:5]}")
+                print(f"States - Predicted classes sample: {torch.argmax(predicted_logits, dim=-1)[:5]}")
+                
+                # Cross-entropy loss for masked positions
+                _ce = F.cross_entropy(predicted_logits, ground_truth_indices, reduction='mean')
+                ce_loss += _ce
+                
+                # Calculate accuracy for masked positions
+                predicted_classes = torch.argmax(predicted_logits, dim=-1)
+                accuracy = (predicted_classes == ground_truth_indices).float().mean()
+                log_dict[f"test/accuracy_{k}"] = accuracy.item()
+                log_dict[f"test/num_masked_{k}"] = mask_positions.sum().item()
+                
+                print(f"States - Accuracy: {accuracy.item():.4f}")
+                print(f"States - Cross-entropy loss: {_ce.item():.4f}")
+            else:
+                log_dict[f"test/accuracy_{k}"] = 0.0
+                log_dict[f"test/num_masked_{k}"] = 0
+                print(f"States - No masked positions found!")
 
         elif k == "actions":
+            # For continuous actions: calculate MSE for MASKED positions only
+            mask_positions = (masks[k] == 0) & (attention_masks == 1)  # Masked positions that are valid
+            
+            print(f"Actions - Total mask positions: {mask_positions.sum().item()}")
+            print(f"Actions - Prediction shape: {v.shape}, Ground truth shape: {batch[k].shape}")
+            
             for f in range(v.shape[2]):
-                if attention_masks is not None:
-                    _ce = F.mse_loss(
-                        v[attention_masks == 1][:, f].to(torch.float32),
-                        batch[k][attention_masks == 1][:, f].to(torch.long),
-                    reduction='sum'
-                ) / (attention_masks.sum()).item()
+                if mask_positions.sum() > 0:
+                    predicted_actions = v[mask_positions][:, f].to(torch.float32)
+                    ground_truth_actions = batch[k][mask_positions][:, f].to(torch.float32)
+                    
+                    _mse = F.mse_loss(predicted_actions, ground_truth_actions, reduction='mean')
+                    log_dict[f"test/mse_{k}_{f}"] = _mse.item()
+                    mse_loss += _mse.item()
+                    
+                    if f == 0:  # Only print for first action dimension
+                        print(f"Actions[{f}] - MSE: {_mse.item():.4f}")
+                        print(f"Actions[{f}] - Pred sample: {predicted_actions[:5]}")
+                        print(f"Actions[{f}] - GT sample: {ground_truth_actions[:5]}")
+                else:
+                    log_dict[f"test/mse_{k}_{f}"] = 0.0
+            
+            if mask_positions.sum() > 0:
+                log_dict[f"test/num_masked_{k}"] = mask_positions.sum().item()
             else:
-                _mse = F.mse_loss(
-                    v[:, :, f].to(torch.float32),
-                    batch[k][:, :, f].to(torch.float32),
-                ).item()
-            log_dict[f"test/mse_{k}_{f}"] = _mse
-            mse_loss += _mse
+                log_dict[f"test/num_masked_{k}"] = 0
+                print(f"Actions - No masked positions found!")
+    print("=== END DEBUG ACCURACY CALCULATION ===\n")
 
     log_dict["test/mse_sum_Actions"] = mse_loss
     log_dict["test/cross_entropy_sum_States"] = ce_loss
+    log_dict["skipped"] = False  # Mark as not skipped for normal processing
 
     return log_dict
 
@@ -757,13 +880,47 @@ def _main(hydra_cfg):
     with open("test_config.yaml", "w") as f:
         f.write(OmegaConf.to_yaml(hydra_cfg))
 
-    # Load test datasets
-    train_dataset: DatasetProtocol
+    # Load test dataset - optimized to load only validation data if specified
     val_dataset: DatasetProtocol
     print("hydra config", hydra_cfg)
-    train_dataset, val_dataset = hydra.utils.call(
-        hydra_cfg.datasets, seq_steps=cfg.traj_length)
     
+    if cfg.load_test_only:
+        print("Loading only validation dataset for testing (optimized mode)...")
+        
+        # Get dataset configuration
+        dataset_cfg = hydra_cfg.datasets
+        
+        # Create a modified version that only loads validation data
+        if hasattr(dataset_cfg, '_target_') and 'traj' in dataset_cfg._target_:
+            # For trajectory datasets, use optimized test dataset loader
+            from research.mtm.datasets.traj import get_test_dataset
+            
+            val_dataset = get_test_dataset(
+                seq_steps=cfg.traj_length,
+                env_name=dataset_cfg.env_name,
+                seed=getattr(dataset_cfg, 'seed', 42),
+                replay_buffer_dir=dataset_cfg.replay_buffer_dir,
+                val_max_size=getattr(dataset_cfg, 'val_max_size', 1000000),
+                num_workers=getattr(dataset_cfg, 'num_workers', 4),
+                train_val_split=getattr(dataset_cfg, 'train_val_split', 0.8),
+            )
+            # Use val_dataset as train_dataset for tokenizer initialization
+            train_dataset = val_dataset
+            
+        else:
+            # For other dataset types, fall back to original method but only use val_dataset
+            print("Using fallback dataset loading method...")
+            train_dataset, val_dataset = hydra.utils.call(
+                hydra_cfg.datasets, seq_steps=cfg.traj_length)
+            del train_dataset  # Free up memory immediately
+            train_dataset = val_dataset  # Use val_dataset for tokenizer initialization
+    else:
+        print("Loading both training and validation datasets (full mode)...")
+        train_dataset, val_dataset = hydra.utils.call(
+            hydra_cfg.datasets, seq_steps=cfg.traj_length)
+        # Keep train_dataset in memory for potential use
+    
+
     logger.info(f"Test set size = {len(val_dataset)}")
 
     # Use validation dataset as our test set
@@ -866,68 +1023,139 @@ def _main(hydra_cfg):
     has_ret = "returns" in test_batch
     has_img = "images" in test_batch
     
-    mask_functions_map = {
-        MaskType.RANDOM: lambda: create_random_masks(
-            data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device
-        ),
-        MaskType.FULL_RANDOM: lambda: create_full_random_masks(
-            data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device
-        ),
-        MaskType.AUTO_MASK: lambda: create_random_autoregressize_mask(
-            data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device, cfg.mode_weights, cfg.mode_order,
-        ),
-        MaskType.RCBC: lambda: create_rcbc_mask(cfg.traj_length, cfg.device),
-        MaskType.GOAL: lambda: maybe_add_rew_to_mask(
-            cfg.traj_length,
-            cfg.device,
-            create_goal_reaching_masks,
-            has_rew,
-            has_img,
-            has_ret,
-        ),
-        MaskType.GOAL_N: lambda: maybe_add_rew_to_mask(
-            cfg.traj_length,
-            cfg.device,
-            create_goal_n_reaching_masks,
-            has_rew,
-            has_img,
-            has_ret,
-        ),
-        MaskType.ID: lambda: maybe_add_rew_to_mask(
-            cfg.traj_length,
-            cfg.device,
-            create_inverse_dynamics_mask,
-            has_rew,
-            has_img,
-            has_ret,
-        ),
-        MaskType.FD: lambda: maybe_add_rew_to_mask(
-            cfg.traj_length,
-            cfg.device,
-            create_forward_dynamics_mask,
-            has_rew,
-            has_img,
-            has_ret,
-        ),
-        MaskType.BC: lambda: maybe_add_rew_to_mask(
-            cfg.traj_length,
-            cfg.device,
-            create_bc_mask,
-            has_rew,
-            has_img,
-            has_ret,
-        ),
-        MaskType.BC_RANDOM: lambda: maybe_add_rew_to_mask(
-            cfg.traj_length,
-            cfg.device,
-            lambda l, d: create_random_bc_masks(l, d, data_shapes, p=0.5),
-            has_rew,
-            has_img,
-            has_ret,
-        ),
-    }
+    # Function to find valid masks when sequences are empty
+    def find_valid_mask_with_retry(test_mask_functions_map, cfg, attention_mask, pattern, max_attempts=10):
+        """
+        Try the same mask pattern multiple times with different random seeds until valid.
+        Much simpler approach - just try and catch errors.
+        """
+        
+        if attention_mask is None:
+            # No attention mask, any mask should work
+            mask_func = test_mask_functions_map[MaskType[pattern]]
+            return mask_func(), pattern
+            
+        # Check if all sequences are empty
+        
+        seq_lengths = attention_mask.sum(dim=-1)
+        if not (seq_lengths == 0).any():
+            # Some sequences are valid, normal mask should work
+            mask_func = test_mask_functions_map[MaskType[pattern]]
+            return mask_func(), pattern
+            
+        print(f"Batch contains empty sequences. Trying {pattern} with different seeds...")
+        
+        # Try multiple times with different random states
+        for attempt in range(max_attempts):
+            try:
+                # Create mask function - many mask functions use random generation
+                mask_func = test_mask_functions_map[MaskType[pattern]]
+                masks = mask_func()
+                
+                # Simple validation: check if mask has any 1s for sequences that have valid tokens
+                valid = False
+                for key, mask in masks.items():
+                    if key not in data_shapes:
+                        continue
+                    
+                    # For each sequence in batch, check if mask overlaps with valid tokens
+                    for seq_idx in range(attention_mask.shape[0]):
+                        seq_len = int(attention_mask[seq_idx].sum().item())
+                        if seq_len > 0:  # Valid sequence
+                            # Check if mask has any 1s in the valid part
+                            if mask[:seq_len].sum() > 0:
+                                valid = True
+                                break
+                    if valid:
+                        break
+                
+                if valid:
+                    if attempt > 0:
+                        print(f"Found valid {pattern} mask after {attempt + 1} attempts")
+                    return masks, pattern
+                    
+            except Exception as e:
+                # If there's an error, try again
+                continue
+        
+        # If all attempts failed, try a minimal conservative mask
+        print(f"All {max_attempts} attempts failed for {pattern}. Using minimal mask.")
+        minimal_masks = {}
+        for key in data_shapes.keys():
+            mask = torch.zeros(cfg.traj_length, device=cfg.device)
+            # Only mask first valid timestep for each sequence
+            mask[0] = 1  
+            minimal_masks[key] = mask
+        
+        return minimal_masks, f"{pattern}_MINIMAL"
 
-    mask_functions = [mask_functions_map[MaskType[i]] for i in cfg.mask_patterns]
+    def create_test_mask_functions(attention_mask=None):
+        return {
+            MaskType.RANDOM: lambda: create_random_masks(
+                data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device
+            ),
+            MaskType.FULL_RANDOM: lambda: create_full_random_masks(
+                data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device
+            ),
+            MaskType.AUTO_MASK: lambda: create_random_autoregressize_mask(
+                data_shapes, cfg.mask_ratios, cfg.traj_length, cfg.device, cfg.mode_weights, cfg.mode_order,
+            ),
+            MaskType.RCBC: lambda: create_rcbc_mask(cfg.traj_length, cfg.device),
+            MaskType.GOAL: lambda: maybe_add_rew_to_mask(
+                cfg.traj_length,
+                cfg.device,
+                create_goal_reaching_masks,
+                has_rew,
+                has_img,
+                has_ret,
+                attention_mask=attention_mask,
+            ),
+            MaskType.GOAL_N: lambda: maybe_add_rew_to_mask(
+                cfg.traj_length,
+                cfg.device,
+                create_goal_n_reaching_masks,
+                has_rew,
+                has_img,
+                has_ret,
+                attention_mask=attention_mask,
+            ),
+            MaskType.ID: lambda: maybe_add_rew_to_mask(
+                cfg.traj_length,
+                cfg.device,
+                create_inverse_dynamics_mask,
+                has_rew,
+                has_img,
+                has_ret,
+                attention_mask=attention_mask,
+            ),
+            MaskType.FD: lambda: maybe_add_rew_to_mask(
+                cfg.traj_length,
+                cfg.device,
+                create_forward_dynamics_mask,
+                has_rew,
+                has_img,
+                has_ret,
+                attention_mask=attention_mask,
+            ),
+            MaskType.BC: lambda: maybe_add_rew_to_mask(
+                cfg.traj_length,
+                cfg.device,
+                create_bc_mask,
+                has_rew,
+                has_img,
+                has_ret,
+                attention_mask=attention_mask,
+            ),
+            MaskType.BC_RANDOM: lambda: maybe_add_rew_to_mask(
+                cfg.traj_length,
+                cfg.device,
+                lambda l, d: create_random_bc_masks(l, d, data_shapes, p=0.5),
+                has_rew,
+                has_img,
+                has_ret,
+                attention_mask=attention_mask,
+            ),
+        }
 
     # Run testing
     logger.info("Starting model testing...")
@@ -939,32 +1167,63 @@ def _main(hydra_cfg):
         for batch_idx, batch in enumerate(test_loader):
             batch = {k: v.to(cfg.device, non_blocking=True) for k, v in batch.items()}
             
-            # Test with different mask patterns
-            for mask_pattern, mask_func in zip(cfg.mask_patterns, mask_functions):
-                masks = mask_func()
+            # Get attention mask for proper variable-length trajectory handling
+            attention_mask = batch.get("attention_mask", None)
+            
+            # Check for empty sequences - use mask cycling instead of skipping
+            if attention_mask is not None:
+                seq_lengths = attention_mask.sum(dim=-1)
+                if (seq_lengths == 0).any():
+                    print(f"Warning: Batch {batch_idx} contains empty sequences (lengths: {seq_lengths})")
+                    print("Will try to find valid masks...")
+            
+            # Create mask functions with current attention mask
+            test_mask_functions_map = create_test_mask_functions(attention_mask)
+            
+            # Test with different mask patterns, using retry if needed
+            for mask_pattern in cfg.mask_patterns:
+                # Try to find a valid mask for this pattern
+                try:
+                    #import pdb; pdb.set_trace()
+                    masks, actual_pattern = find_valid_mask_with_retry(
+                        test_mask_functions_map, cfg, attention_mask, mask_pattern
+                    )
+                    
+                    if actual_pattern != mask_pattern:
+                        print(f"Original pattern '{mask_pattern}' resulted in empty sequences.")
+                        print(f"Using valid fallback pattern: '{actual_pattern}'")
+                    
+                    if "images" in batch and "images" not in masks:
+                        masks["images"] = masks["states"]
 
-                print("Mask pattern: ", mask_pattern)
-                # Test the model on this batch
-                batch_results = test_model_on_batch(
-                    model,
-                    tokenizer_manager,
-                    discrete_map,
-                    batch.copy(),
-                    masks,
-                    batch_idx,
-                    mask_pattern=mask_pattern,
-                    save_predictions=cfg.save_predictions,
-                    output_dir=test_output_dir,
-                )
-                
-                # Add mask pattern info to results
-                batch_results["mask_pattern"] = mask_pattern
-                batch_results["batch_idx"] = batch_idx
-                all_results.append(batch_results)
-                
-                # Log progress
-                if batch_idx % 10 == 0:
-                    logger.info(f"Processed batch {batch_idx}/{total_batches} with mask {mask_pattern}")
+                    print(f"Testing with mask pattern: {actual_pattern}")
+                    # Test the model on this batch
+                    batch_results = test_model_on_batch(
+                        model,
+                        tokenizer_manager,
+                        discrete_map,
+                        batch.copy(),
+                        masks,
+                        batch_idx,
+                        mask_pattern=actual_pattern,  # Use the actual pattern that worked
+                        save_predictions=cfg.save_predictions,
+                        output_dir=test_output_dir,
+                    )
+                    
+                    # Add mask pattern info to results
+                    batch_results["mask_pattern"] = actual_pattern
+                    batch_results["original_pattern"] = mask_pattern
+                    batch_results["batch_idx"] = batch_idx
+                    all_results.append(batch_results)
+                    
+                    # Log progress
+                    if batch_idx % 10 == 0:
+                        logger.info(f"Processed batch {batch_idx}/{total_batches} with mask {actual_pattern}")
+                        
+                except Exception as e:
+                    print(f"Error processing batch {batch_idx} with mask {mask_pattern}: {e}")
+                    # Continue with next mask pattern
+                    continue
                     wandb_logger.log(batch_results, step=batch_idx * len(cfg.mask_patterns) + len(all_results) - 1)
 
             # Run comprehensive evaluation on this batch
@@ -1001,9 +1260,18 @@ def _main(hydra_cfg):
     # Aggregate and save final results
     logger.info("Computing aggregate statistics...")
     
+    # Filter out skipped batches
+    valid_results = [result for result in all_results if not result.get("skipped", False)]
+    skipped_count = len(all_results) - len(valid_results)
+    
+    if skipped_count > 0:
+        logger.info(f"Skipped {skipped_count} batches due to empty sequences")
+    
+    logger.info(f"Processing {len(valid_results)} valid batches for statistics")
+    
     # Group results by mask pattern
     results_by_pattern = {}
-    for result in all_results:
+    for result in valid_results:
         pattern = result["mask_pattern"]
         if pattern not in results_by_pattern:
             results_by_pattern[pattern] = []
@@ -1026,15 +1294,22 @@ def _main(hydra_cfg):
         
         final_stats.update(pattern_stats)
     
+    # Add batch processing statistics
+    final_stats["total_batches"] = len(all_results)
+    final_stats["valid_batches"] = len(valid_results)
+    final_stats["skipped_batches"] = skipped_count
+    final_stats["skip_rate"] = skipped_count / len(all_results) if len(all_results) > 0 else 0.0
+    
     # Save final statistics
     import json
     with open(f"{test_output_dir}/test_statistics.json", "w") as f:
         json.dump(final_stats, f, indent=2)
     
     # Log final statistics to wandb
-    wandb_logger.log(final_stats, step=len(all_results))
+    wandb_logger.log(final_stats, step=len(valid_results))
     
     logger.info(f"Testing completed! Results saved to {test_output_dir}")
+    logger.info(f"Processed {len(valid_results)}/{len(all_results)} batches (skipped {skipped_count} empty batches)")
     logger.info("Final Statistics:")
     for key, value in final_stats.items():
         logger.info(f"  {key}: {value:.6f}")

@@ -1,0 +1,62 @@
+defaults:
+    - datasets: d4rl
+    - override hydra/launcher: slurm
+    - override hydra/output: local
+    - _self_
+
+model_config:
+    _target_: research.mtm.models.mtm_model.MTMConfig
+    norm: "none"
+    n_embd: 1024
+    n_enc_layer: 2
+    n_dec_layer: 1
+    n_head: 4
+    dropout: 0.1
+    loss_keys: null
+    latent_dim: null
+
+state_only_dataset: null
+
+args:
+    _target_: research.mtm.train.RunConfig
+    seed: 0
+    batch_size: 5
+    n_workers: 10
+    traj_length: 278
+
+    ### Debug
+    # log_every: 1
+    # print_every: 1
+    # eval_every: 1
+    # save_every: 1
+
+    log_every: 1
+    print_every: 1
+    eval_every: 2000000
+    save_every: 1000
+
+    device: cuda
+    mask_ratios: [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
+    # FIXED: Add diverse mask patterns to reduce training-testing domain gap
+    mask_patterns: ["FULL_RANDOM", "RANDOM", "AUTO_MASK", "BC"]
+    # mask_patterns: ["FULL_RANDOM"]  # Original - too limited
+    mode_order: ["states", "actions"]
+    mode_weights: [0.5, 0.5]
+    warmup_steps: 40000
+    num_train_steps: 140010
+    learning_rate: 0.0001
+    weight_decay:  0.005
+    tsp_ratio: 1
+
+wandb:
+  project: experiments
+  entity: ""
+  resume: False
+
+job_name: job
+
+hydra:
+    job:
+        name: mtm_mae
+        chdir: True
+

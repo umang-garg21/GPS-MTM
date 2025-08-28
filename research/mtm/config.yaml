@@ -15,6 +15,13 @@ model_config:
     loss_keys: null
     latent_dim: null
 
+tokenizers:
+    states:
+        _target_: research.mtm.tokenizers.discrete_identity.DiscreteIdentity.create
+        num_classes: 198   # Number of classes for discrete tokenizer
+    actions:
+        _target_: research.mtm.tokenizers.continuous.ContinuousTokenizer.create
+
 state_only_dataset: null
 
 args:
@@ -32,17 +39,18 @@ args:
 
     log_every: 1
     print_every: 1
-    eval_every: 2000000
+    eval_every: 100
     save_every: 1000
 
     device: cuda
     mask_ratios: [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
-    #mask_patterns: ["AUTO_MASK"]
-    mask_patterns: ["FULL_RANDOM"]
+    # FIXED: Add diverse mask patterns to reduce training-testing domain gap
+    mask_patterns: ["FULL_RANDOM", "RANDOM", "AUTO_MASK", "BC"]
+    # mask_patterns: ["FULL_RANDOM"]  # Original - too limited
     mode_order: ["states", "actions"]
     mode_weights: [0.5, 0.5]
     warmup_steps: 40000
-    num_train_steps: 140010
+    num_train_steps: 100000
     learning_rate: 0.0001
     weight_decay:  0.005
     tsp_ratio: 1

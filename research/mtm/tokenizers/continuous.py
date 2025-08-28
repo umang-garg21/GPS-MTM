@@ -13,10 +13,7 @@ class ContinuousTokenizer(Tokenizer):
         self,
         data_mean: ArrayLike,
         data_std: ArrayLike,
-        data_min: ArrayLike,
-        data_max: ArrayLike,
         stats: DataStatistics,
-        # ORIGINALLY: normalize: bool = True,
         normalize: bool = True,
     ):
         super().__init__()
@@ -26,29 +23,20 @@ class ContinuousTokenizer(Tokenizer):
         self._data_std = torch.nn.Parameter(
             torch.tensor(data_std, dtype=torch.float32), requires_grad=False
         )
-        self._data_min = torch.nn.Parameter(
-            torch.tensor(data_min, dtype=torch.float32), requires_grad=False
-        )
-        self._data_max = torch.nn.Parameter(
-            torch.tensor(data_max, dtype=torch.float32), requires_grad=False
-        )
         self.stats = stats
         self.normalize = normalize
 
     @classmethod
     def create(
-        cls, key: str, train_dataset: DatasetProtocol, normalize: bool = False
+        cls, key: str, train_dataset: DatasetProtocol, normalize: bool = True
     ) -> "ContinuousTokenizer":
         data = []
         stats = train_dataset.trajectory_statistics()[key]
         data_mean = stats.mean
         data_std = stats.std
-        data_min= stats.min
-        data_max= stats.max
         data_std[data_std < 0.1] = 1  # do not normalize if std is too small
-        #return cls(data_mean, data_std, stats, normalize=normalize)
-        return cls(data_mean, data_std, data_min, data_max, stats, normalize=normalize)
-    
+        return cls(data_mean, data_std, stats, normalize=normalize)
+
     @property
     def discrete(self) -> bool:
         return False
@@ -59,22 +47,15 @@ class ContinuousTokenizer(Tokenizer):
     ) -> torch.Tensor:
         assert trajectory.dim() == 3
 
-        
+        # Perform normalization where attention mask is 1
+        #att_mask = self.
         if self.normalize:
-            """mean-std normalization"""
-            #mean = self._data_mean.to(trajectory.device)
-            #std = self._data_std.to(trajectory.device)
+            mean = self._data_mean.to(trajectory.device)
+            std = self._data_std.to(trajectory.device)
             # normalize trajectory
 
-            #trajectory[:] = (trajectory[:] - mean) / std
+            trajectory[:] = (trajectory[:] - mean) / std
             #trajectory = (trajectory - mean) / std
-
-
-            """min-max normalization"""
-            min = self._data_min.to(trajectory.device)
-            max = self._data_max.to(trajectory.device)
-            trajectory = (trajectory - min) / (max - min)
-
         return trajectory.unsqueeze(2).to(torch.float32)
 
     def decode(
@@ -90,16 +71,10 @@ class ContinuousTokenizer(Tokenizer):
         assert trajectory.dim() == 4 # [batch, traj_length, channel, output_dim]
         assert trajectory.size(2) == 1 #POSSIBLY. num of channels 
         if self.normalize:
-            """mean-std normalization"""
-            #mean = self._data_mean.to(trajectory.device)
-            #std = self._data_std.to(trajectory.device)
-
-            """min-max normalization"""
-            min = self._data_min.to(trajectory.device)
-            max = self._data_max.to(trajectory.device)
+            mean = self._data_mean.to(trajectory.device)
+            std = self._data_std.to(trajectory.device)
 
             # denormalize trajectory
-            #return trajectory.squeeze(2) * std + mean
-            return trajectory.squeeze(2) * (max - min) + min
+            return trajectory.squeeze(2) * std + mean
         else:
             return trajectory.squeeze(2)

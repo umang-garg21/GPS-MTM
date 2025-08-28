@@ -115,6 +115,56 @@ class OfflineReplayBuffer(Dataset, DatasetProtocol):
             self._episodes[eps_fn] = episode
             self._size += episode_len(episode)
 
+    def _load_from_episodes(self, episode_list):
+        """Load specific episodes into this dataset buffer."""
+        if self._loaded:
+            return
+        self._loaded = True
+        
+        current_size = 0
+        for eps_fn, episode in episode_list:
+            if current_size >= self._max_size:
+                break
+            self._episode_fns.append(eps_fn)
+            self._episodes[eps_fn] = episode
+            episode_size = episode_len(episode)
+            current_size += episode_size
+            self._size += episode_size
+        
+        print(f"Loaded {len(self._episode_fns)} episodes, total size: {self._size}")
+
+    def _load_from_filenames(self, eps_fns_list):
+        """Load episodes from specific filenames into this dataset buffer."""
+        if self._loaded:
+            return
+        self._loaded = True
+        
+        current_size = 0
+        loaded_count = 0
+        
+        for eps_fn in eps_fns_list:
+            if current_size >= self._max_size:
+                print(f"Reached max size limit {self._max_size}, stopping at {loaded_count} episodes")
+                break
+            
+            try:
+                episode = load_episode(eps_fn)
+                self._episode_fns.append(eps_fn)
+                self._episodes[eps_fn] = episode
+                episode_size = episode_len(episode)
+                current_size += episode_size
+                self._size += episode_size
+                loaded_count += 1
+                
+                if loaded_count % 1000 == 0:
+                    print(f"Loaded {loaded_count} episodes, current size: {current_size}")
+                    
+            except Exception as e:
+                print(f"Error loading episode {eps_fn}: {e}")
+                continue
+        
+        print(f"Final: Loaded {loaded_count} episodes, total size: {self._size}")
+
     def __len__(self) -> int:
         return self._size
 
@@ -152,18 +202,46 @@ class OfflineReplayBuffer(Dataset, DatasetProtocol):
             "attention_mask": content["attention_mask"].astype(np.float32),
         }
 
-    def eval_logs(self, model: Callable) -> Dict[str, Any]:
+    def eval_logs(self, model: Callable, tokenizer_manager) -> Dict[str, Any]:
         num_samples = 10
         eval_logs = {}
 
         for _ in range(num_samples):
+            sample = self.sample()
             batch = {
-                "states": torch.tensor(self.sample()["states"]).unsqueeze(0),
-                "actions": torch.tensor(self.sample()["actions"]).unsqueeze(0),
+                "states": torch.tensor(sample["states"]).unsqueeze(0),
+                "actions": torch.tensor(sample["actions"]).unsqueeze(0),
+                "attention_mask": torch.tensor(sample["attention_mask"]).unsqueeze(0),
             }
-            predicted_trajectories = model(batch)
-            mse = torch.mean((predicted_trajectories["states"] - batch["states"]) ** 2)
-            eval_logs["mse"] = mse.item()
+            
+            # Get trajectory length from the sample
+            traj_length = batch["attention_mask"].shape[1]
+            
+            # Create no-masking masks (all zeros = no masking for evaluation)
+            masks = {
+                "states": torch.zeros(traj_length, dtype=torch.bool, device='cuda'),
+                "actions": torch.zeros(traj_length, dtype=torch.bool, device='cuda')
+            }
+            
+            # Encode the batch using tokenizer manager
+            encoded_batch = {}
+            for key in batch:
+                if key != "attention_mask":
+                    tokenizer = tokenizer_manager.tokenizers[key]
+                    encoded_batch[key] = tokenizer.encode(batch[key])
+            
+            # Move tensors to GPU
+            for key in encoded_batch:
+                encoded_batch[key] = encoded_batch[key].to('cuda')
+            batch["attention_mask"] = batch["attention_mask"].to('cuda')
+            
+            # Call model with proper arguments
+            predicted_trajectories = model(encoded_batch, masks, attention_masks=batch["attention_mask"])
+            
+            # Simple MSE calculation on encoded space
+            for key in encoded_batch:
+                mse = torch.mean((predicted_trajectories[key] - encoded_batch[key]) ** 2)
+                eval_logs[f"mse_{key}"] = mse.item()
 
         return eval_logs
 
@@ -182,6 +260,7 @@ def get_datasets(
     train_max_size: int,
     val_max_size: int,
     num_workers: int,
+    train_val_split: float = 0.8,
 ):
     # env = dmc.make(env_name, seed=seed)
     domain = env_name.split("_", 1)[0]
@@ -189,6 +268,25 @@ def get_datasets(
 
     replay_train_dir = Path(replay_buffer_dir)
     print("replay_train_dir: ", replay_train_dir)
+    
+    # Get all episode filenames and split them (no loading yet)
+    eps_fns = sorted(replay_train_dir.rglob("*.npz"))
+    
+    print(f"Found {len(eps_fns)} episodes for train/val split...")
+    
+    # Handle case when no episodes are found
+    if len(eps_fns) == 0:
+        raise ValueError(f"No episodes found in directory: {replay_train_dir}")
+    
+    # Split episode filenames based on train_val_split ratio
+    split_idx = int(len(eps_fns) * train_val_split)
+    train_eps_fns = eps_fns[:split_idx]
+    val_eps_fns = eps_fns[split_idx:]
+    
+    print(f"Train episodes: {len(train_eps_fns)}")
+    print(f"Val episodes: {len(val_eps_fns)}")
+    print(f"Episode-level split: {len(train_eps_fns)/(len(train_eps_fns)+len(val_eps_fns)):.3f}/{len(val_eps_fns)/(len(train_eps_fns)+len(val_eps_fns)):.3f}")
+    
     train_dataset = OfflineReplayBuffer(
         # env,
         replay_train_dir,
@@ -208,7 +306,58 @@ def get_datasets(
         traj_length=seq_steps,
     )
 
-    train_dataset._load()
-    val_dataset._load()
+    # Load only the split episode filenames into respective datasets
+    train_dataset._load_from_filenames(train_eps_fns)
+    val_dataset._load_from_filenames(val_eps_fns)
 
     return train_dataset, val_dataset
+
+
+def get_test_dataset(
+    seq_steps: int,
+    env_name: str,
+    seed: int,
+    replay_buffer_dir: str,
+    val_max_size: int,
+    num_workers: int,
+    train_val_split: float = 0.8,
+):
+    """
+    Optimized function to load ONLY the validation/test dataset.
+    This avoids loading training data during testing, saving memory and time.
+    """
+    domain = env_name.split("_", 1)[0]
+    print("domain: ", domain)
+
+    replay_train_dir = Path(replay_buffer_dir)
+    print("replay_train_dir: ", replay_train_dir)
+    
+    # Get all episode filenames and split them (no loading yet)
+    eps_fns = sorted(replay_train_dir.rglob("*.npz"))
+    
+    print(f"Found {len(eps_fns)} total episodes")
+    
+    # Handle case when no episodes are found
+    if len(eps_fns) == 0:
+        raise ValueError(f"No episodes found in directory: {replay_train_dir}")
+    
+    # Split episode filenames based on train_val_split ratio
+    split_idx = int(len(eps_fns) * train_val_split)
+    val_eps_fns = eps_fns[split_idx:]  # Only get validation episodes
+    
+    print(f"Loading only {len(val_eps_fns)} validation episodes for testing")
+    print(f"Skipping {len(eps_fns[:split_idx])} training episodes to save memory")
+    
+    val_dataset = OfflineReplayBuffer(
+        replay_train_dir,
+        val_max_size,
+        num_workers,
+        discount=0.99,
+        domain=domain,
+        traj_length=seq_steps,
+    )
+
+    # Load only validation episode filenames
+    val_dataset._load_from_filenames(val_eps_fns)
+
+    return val_dataset
