@@ -10,10 +10,11 @@ CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py \
     ++hydra.job.name="train_haystac" \
     ++datasets.train_val_split=0.7 \
     ++tokenizers.states.num_classes="28"\
-    ++args.batch_size="32"
+    ++args.batch_size="32" \
+    ++args.mask_ratios=[0.1,0.15,0.2,0.3,0.4,0.5,0.6] \
+    ++args.mask_patterns=["RANDOM","GOAL","ID","FD"]
 
-
-# TRAIN ON URBAN ANOMALIES ATLANTA DATA 
+# TRAIN ON URBAN ANOMALIES ATLANTA DATA
 CUDA_VISIBLE_DEVICES=1 python research/mtm/train.py \
     +exp_traj=traj_cont_statediscrete_actcont \
     ++datasets.env_name="gps_traj_masked_modelling" \
@@ -46,4 +47,6 @@ CUDA_VISIBLE_DEVICES=2 python research/mtm/train.py \
     ++hydra.job.name="train_geolife" \
     ++datasets.train_val_split=0.7 \
     ++tokenizers.states.num_classes="198"\
-    ++args.batch_size="5"
+    ++args.batch_size="5" \
+    ++args.mask_ratios=[0.1,0.15,0.2,0.3,0.4,0.5,0.6] \
+    ++args.mask_patterns=["RANDOM","GOAL","ID","FD"]

@@ -371,7 +371,7 @@ class MTM(nn.Module):
                 # raw_loss = combined_loss.unsqueeze(-1)
            
             if attention_masks is not None:
-                use_attention_masks = attention_masks * (1 - masks[key])
+                use_attention_masks = attention_masks * (1 - masks[key]).squeeze().reshape(1,-1)
                 # Actual loss is only upto attention_mask length. Focus the model to learn relevant tokens not 0s.
                 masked_loss = raw_loss * use_attention_masks.unsqueeze(-1).unsqueeze(-1)
 
@@ -530,6 +530,8 @@ class MTM(nn.Module):
                 embedded_trajectories, batched_masks, attention_masks=attention_masks
             )
         except Exception as e:
+            print("Exception in forward encoder:")
+            print("batched_masks", batched_masks['states'])
             import traceback; traceback.print_exc()
             # import pdb; pdb.set_trace()
             raise e  # Re-raise the exception instead of continuing
@@ -556,6 +558,7 @@ class MTM(nn.Module):
         # process obs
         batch_size =trajectories[list(trajectories.keys())[0]].shape[0]
         keys = list(trajectories.keys())  # get the keys in a list to maintain order
+        continue_flag=0
         for k in keys:
             traj = trajectories[k]
             mask = masks[k]
@@ -563,9 +566,19 @@ class MTM(nn.Module):
             # Updated masks include only allowed positions. 
             # Get all the tokens that are not masked.
             updated_visible_tokens_masks[k] = self.mask_expand(traj, mask, attention_masks)
-            if updated_visible_tokens_masks[k] is not None:
-                x, ids_restore[k], keep_len[k] = self._index_and_concat(traj, updated_visible_tokens_masks[k])
-            else:
+            try:
+                if updated_visible_tokens_masks[k] is not None:
+                    if torch.any(updated_visible_tokens_masks[k].sum(dim=1)==0):
+                        continue_flag=1
+                        break; 
+                    else:
+                        x, ids_restore[k], keep_len[k] = self._index_and_concat(traj, updated_visible_tokens_masks[k])
+            except AttributeError:
+                print("NO UPDATED VISIBLE TOKENS, SKIPPING")
+                import traceback; traceback.print_exc()
+                # Skip this batch:::
+                continue
+
                 # If no attention masks, use the original mask but expand it to batch size
                 batch_mask = mask.repeat(traj.shape[0], 1)
                 x, ids_restore[k], keep_len[k] = self._index_and_concat(traj, batch_mask)

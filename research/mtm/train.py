@@ -600,7 +600,7 @@ def evaluate(
     vis_batch: Dict[str, torch.Tensor],
     masks: Dict[str, torch.Tensor],
 ) -> Dict[str, Any]:
-    attention_masks = val_batch.pop("attention_masks", None)
+    attention_masks = val_batch.pop("attention_mask", None)
     
     # Check for empty sequences in validation batch
     if attention_masks is not None:
@@ -650,27 +650,27 @@ def evaluate(
         mse_loss += _mse
     log_dict["val/mse_sum"] = mse_loss
 
-    if "states" in val_batch and "actions" in val_batch and "images" in val_batch:
-        log_images = create_eval_logs_states_actions_images(
-            model, vis_batch, tokenizer_manager
-        )
-    elif "states" in val_batch and "actions" in val_batch and "rewards" in val_batch:
-        log_images = create_eval_logs_states_actions(
-            model, vis_batch, tokenizer_manager, rewards=True
-        )
-    elif "states" in val_batch and "actions" in val_batch:
-        log_images = create_eval_logs_states_actions(
-            model, vis_batch, tokenizer_manager
-        )
-    elif "states" in val_batch:
-        log_images = create_eval_logs_states(model, vis_batch, tokenizer_manager)
-    elif "images" in val_batch:
-        log_images = create_eval_logs_actions_images(
-            model, vis_batch, tokenizer_manager
-        )
-    else:
-        raise NotImplementedError
-    log_dict.update(log_images)
+    # if "states" in val_batch and "actions" in val_batch and "images" in val_batch:
+    #     log_images = create_eval_logs_states_actions_images(
+    #         model, vis_batch, tokenizer_manager
+    #     )
+    # elif "states" in val_batch and "actions" in val_batch and "rewards" in val_batch:
+    #     log_images = create_eval_logs_states_actions(
+    #         model, vis_batch, tokenizer_manager, rewards=True
+    #     )
+    # elif "states" in val_batch and "actions" in val_batch:
+    #     log_images = create_eval_logs_states_actions(
+    #         model, vis_batch, tokenizer_manager
+    #     )
+    # elif "states" in val_batch:
+    #     log_images = create_eval_logs_states(model, vis_batch, tokenizer_manager)
+    # elif "images" in val_batch:
+    #     log_images = create_eval_logs_actions_images(
+    #         model, vis_batch, tokenizer_manager
+    #     )
+    # else:
+    #     raise NotImplementedError
+    # log_dict.update(log_images)
     return log_dict
 
 
@@ -704,6 +704,7 @@ def train_one_batch(
     encoded_batch = tokenizer_manager.encode(batch_clone, attention_masks=attention_masks)
     _= masks.pop("attention_mask", None)
     # Forward pass with attention masks
+
     predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
 
     # compute the loss
@@ -1265,9 +1266,16 @@ def _main(hydra_cfg):
             
             # randomly select mask
             masks = random.choice(current_mask_functions)()
+            if masks['states'].sum() == 0:
+                print("NO UPDATED VISIBLE TOKENS, SKIPPING")
+                continue
+
             if "images" in batch and "images" not in masks:
                 masks["images"] = masks["states"]
 
+            # if masks contains boolean data
+            if masks["states"].dtype == torch.bool:
+                import pdb; pdb.set_trace()
             batch = {k: v.to(cfg.device, non_blocking=True) for k, v in batch.items()}
             _log_dict = train_one_batch(
                 model,
@@ -1318,10 +1326,10 @@ def _main(hydra_cfg):
             val_batch = {
                 k: v.to(cfg.device, non_blocking=True) for k, v in val_batch.items()
             }
-            if hydra_cfg.state_only_dataset is not None:
-                log_dict = state_only_val_dataset.eval_logs(model, tokenizer_manager)
-            else:
-                log_dict = val_dataset.eval_logs(model, tokenizer_manager)
+            # if hydra_cfg.state_only_dataset is not None:
+            #     log_dict = state_only_val_dataset.eval_logs(model, tokenizer_manager)
+            # else:
+            #     log_dict = val_dataset.eval_logs(model, tokenizer_manager)
 
             _val_dict = evaluate(
                 model,
