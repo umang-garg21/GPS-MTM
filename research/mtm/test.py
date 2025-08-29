@@ -555,10 +555,11 @@ def evaluate(
     vis_batch: Dict[str, torch.Tensor],
     masks: Dict[str, torch.Tensor],
 ) -> Dict[str, Any]:
-    attention_masks = val_batch.pop("attention_masks", None)
+    
+    attention_masks = val_batch.pop("attention_mask", None)
     encoded_batch = tokenizer_manager.encode(val_batch, attention_masks=attention_masks)
 
-    predicted_trajectories = model(encoded_batch, masks)
+    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
 
     model_without_ddp = model.module if hasattr(model, "module") else model
     (
@@ -588,9 +589,16 @@ def evaluate(
         log_dict["val/masked_c_loss"] = masked_c_losses["actions"].item()
     if len(masked_c_loss_per_feature_k.keys()) > 1:
         for k, v in masked_c_loss_per_feature_k.items():
-            log_dict[f"val/masked_c_loss_per_feature_{k}"] = v.item()
+            if v.numel() == 1:
+                log_dict[f"val/masked_c_loss_per_feature_{k}"] = v.item()
+            else:
+                log_dict[f"val/masked_c_loss_per_feature_{k}"] = v.mean().item()
     else:
-        log_dict["val/masked_c_loss_per_feature"] = masked_c_loss_per_feature_k["actions"].item()
+        v = masked_c_loss_per_feature_k["actions"]
+        if v.numel() == 1:
+            log_dict["val/masked_c_loss_per_feature"] = v.item()
+        else:
+            log_dict["val/masked_c_loss_per_feature"] = v.mean().item()
     if isinstance(masked_losses, dict) and len(masked_losses) > 1:
         for k, v in masked_losses.items():
             log_dict[f"val/masked_loss_{k}"] = v.item()
@@ -608,33 +616,7 @@ def evaluate(
 
     mse_loss = 0
     predictions = tokenizer_manager.decode(predicted_trajectories)
-    for k, v in predictions.items():
-        _mse = F.mse_loss(v.to(torch.float32), val_batch[k].to(torch.float32)).item()
-        log_dict[f"val/mse_{k}"] = _mse
-        mse_loss += _mse
-    log_dict["val/mse_sum"] = mse_loss
 
-    if "states" in val_batch and "actions" in val_batch and "images" in val_batch:
-        log_images = create_eval_logs_states_actions_images(
-            model, vis_batch, tokenizer_manager
-        )
-    elif "states" in val_batch and "actions" in val_batch and "rewards" in val_batch:
-        log_images = create_eval_logs_states_actions(
-            model, vis_batch, tokenizer_manager, rewards=True
-        )
-    elif "states" in val_batch and "actions" in val_batch:
-        log_images = create_eval_logs_states_actions(
-            model, vis_batch, tokenizer_manager
-        )
-    elif "states" in val_batch:
-        log_images = create_eval_logs_states(model, vis_batch, tokenizer_manager)
-    elif "images" in val_batch:
-        log_images = create_eval_logs_actions_images(
-            model, vis_batch, tokenizer_manager
-        )
-    else:
-        raise NotImplementedError
-    log_dict.update(log_images)
     return log_dict
 
 
@@ -672,7 +654,7 @@ def test_model_on_batch(
     # Clone the batch
     batch_clone = {k: v.clone() for k, v in batch.items()}
     encoded_batch = tokenizer_manager.encode(batch_clone, attention_masks=attention_masks)
-    _ = masks.pop("attention_masks", None)
+    _ = encoded_batch.pop("attention_masks", None)
     
     # DEBUG: Print mask information
     print(f"\n=== DEBUG MASK INFO for batch {batch_idx} ===")
@@ -704,9 +686,8 @@ def test_model_on_batch(
     print("=== END DEBUG MASK INFO ===\n")
     
     # Forward pass with attention masks
-    predicted_trajectories = model(encoded_batch, masks)
+    predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
     
-    # DEBUG: Check what the model actually sees vs what it predicts
     print(f"\n=== DEBUG MODEL INPUT/OUTPUT for batch {batch_idx} ===")
     
     # Check the original input vs the encoded input
@@ -717,9 +698,9 @@ def test_model_on_batch(
             print(f"  Encoded shape: {encoded_batch[k].shape}")
             print(f"  Prediction shape: {predicted_trajectories[k].shape}")
             
-            # Show some sample values for first sequence
-            print(f"  Original values (first 5): {batch[k][0, :5].flatten()}")
-            print(f"  Predicted values (first 5): {predicted_trajectories[k][0, :5].flatten()}")
+            # # Show some sample values for first sequence
+            # print(f"  Original values (first 5): {batch[k][0, :5].flatten()}")
+            # print(f"  Predicted values (first 5): {predicted_trajectories[k][0, :5].flatten()}")
             
             # Check if the model is just copying visible tokens
             mask = masks[k]
@@ -733,10 +714,11 @@ def test_model_on_batch(
                 for pos in visible_positions:
                     orig_val = batch[k][0, pos]
                     pred_val = predicted_trajectories[k][0, pos]
+                    print("key:", k)
                     print(f"  Visible pos {pos}: original={orig_val} vs predicted={pred_val}")
     
     print("=== END DEBUG MODEL INPUT/OUTPUT ===\n")
-
+    
     # Compute the loss
     model_without_ddp = model.module if hasattr(model, "module") else model
     loss_keys = model_without_ddp.config.loss_keys
@@ -793,10 +775,20 @@ def test_model_on_batch(
             if mask_positions.sum() > 0:
                 # v is logits, batch[k] should be class indices
                 predicted_logits = v[mask_positions]  # Shape: [num_masked_tokens, num_classes]
-                ground_truth_indices = batch[k][mask_positions].long()  # Shape: [num_masked_tokens]
+                ground_truth_tensor = batch[k][mask_positions]  # Shape: [num_masked_tokens, num_classes] or [num_masked_tokens]
                 
                 print(f"States - Predicted logits shape: {predicted_logits.shape}")
-                print(f"States - Ground truth indices shape: {ground_truth_indices.shape}")
+                print(f"States - Ground truth tensor shape: {ground_truth_tensor.shape}")
+                
+                # Check if ground truth is one-hot encoded or class indices
+                if len(ground_truth_tensor.shape) > 1 and ground_truth_tensor.shape[1] > 1:
+                    # Ground truth is one-hot encoded, convert to class indices
+                    ground_truth_indices = torch.argmax(ground_truth_tensor, dim=-1).long()
+                    print(f"States - Converting one-hot to indices, new shape: {ground_truth_indices.shape}")
+                else:
+                    # Ground truth is already class indices
+                    ground_truth_indices = ground_truth_tensor.long()
+                
                 print(f"States - Ground truth sample: {ground_truth_indices[:5]}")
                 print(f"States - Predicted classes sample: {torch.argmax(predicted_logits, dim=-1)[:5]}")
                 
@@ -904,8 +896,6 @@ def _main(hydra_cfg):
                 num_workers=getattr(dataset_cfg, 'num_workers', 4),
                 train_val_split=getattr(dataset_cfg, 'train_val_split', 0.8),
             )
-            # Use val_dataset as train_dataset for tokenizer initialization
-            train_dataset = val_dataset
             
         else:
             # For other dataset types, fall back to original method but only use val_dataset
@@ -913,14 +903,12 @@ def _main(hydra_cfg):
             train_dataset, val_dataset = hydra.utils.call(
                 hydra_cfg.datasets, seq_steps=cfg.traj_length)
             del train_dataset  # Free up memory immediately
-            train_dataset = val_dataset  # Use val_dataset for tokenizer initialization
     else:
         print("Loading both training and validation datasets (full mode)...")
         train_dataset, val_dataset = hydra.utils.call(
             hydra_cfg.datasets, seq_steps=cfg.traj_length)
         # Keep train_dataset in memory for potential use
     
-
     logger.info(f"Test set size = {len(val_dataset)}")
 
     # Use validation dataset as our test set
@@ -929,7 +917,7 @@ def _main(hydra_cfg):
     # Initialize tokenizers
     if "tokenizers" in hydra_cfg:
         tokenizers: Dict[str, Tokenizer] = {
-            k: hydra.utils.call(v, key=k, train_dataset=train_dataset)
+            k: hydra.utils.call(v, key=k, train_dataset=test_dataset)
             for k, v in hydra_cfg.tokenizers.items()
         }
     else:
