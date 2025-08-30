@@ -117,6 +117,13 @@ def eval_fd(
         eval_batch, attention_masks=attention_masks
     )
     predictions = model.mask_git_forward(encoded_batch, masks, ratio=ratio)
+    
+    # Handle case where forward returns None due to empty sequences
+    if predictions is None:
+        eval_dict = {}
+        eval_dict[f"eval/fd_state_error_r={ratio}"] = 0.0
+        return eval_dict
+        
     predicted_next_state = tokenizer_manager.decode(predictions)["states"]
 
     states = eval_batch["states"]
@@ -163,6 +170,13 @@ def eval_id(
         eval_batch, attention_masks=attention_masks
     )
     predictions = model.mask_git_forward(encoded_batch, masks, ratio=ratio)
+    
+    # Handle case where forward returns None due to empty sequences
+    if predictions is None:
+        eval_dict = {}
+        eval_dict[f"eval/id_action_error_r={ratio}"] = 0.0
+        return eval_dict
+        
     predicted_actions = tokenizer_manager.decode(predictions)["actions"]
     predicted_action = predicted_actions[:, -2, :]
 
@@ -262,6 +276,12 @@ def eval_full_id(
         eval_batch, attention_masks=attention_masks
     )
     predictions = model.mask_git_forward(encoded_batch, masks, ratio=ratio)
+
+    # Handle case where forward returns None due to empty sequences
+    if predictions is None:
+        eval_dict = {}
+        eval_dict[f"eval/full_id_action_error_r={ratio}"] = 0.0
+        return eval_dict
 
     predicted_actions = tokenizer_manager.decode(predictions)["actions"]
     actions = eval_batch["actions"]
@@ -614,8 +634,26 @@ def evaluate(
             }
     
     encoded_batch = tokenizer_manager.encode(val_batch, attention_masks=attention_masks)
+    
+    # Check if encoding was skipped due to empty sequences
+    if encoded_batch is None:
+        logger.warning("Skipping evaluation due to empty sequences detected in encoding")
+        return {
+            "val/val_loss": 0.0,
+            "val/states_loss": 0.0,
+            "val/actions_loss": 0.0
+        }
 
     predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
+    
+    # Check if forward pass was skipped due to empty sequences
+    if predicted_trajectories is None:
+        logger.warning("Skipping evaluation due to empty sequences detected in forward pass")
+        return {
+            "val/val_loss": 0.0,
+            "val/states_loss": 0.0,
+            "val/actions_loss": 0.0
+        }
 
     model_without_ddp = model.module if hasattr(model, "module") else model
     (
@@ -702,10 +740,27 @@ def train_one_batch(
     #clone the batch
     batch_clone = {k: v.clone() for k, v in batch.items()}
     encoded_batch = tokenizer_manager.encode(batch_clone, attention_masks=attention_masks)
+    
+    # Check if encoding was skipped due to empty sequences
+    if encoded_batch is None:
+        logger.warning("Skipping batch due to empty sequences detected in encoding")
+        return {
+            "train/train_loss": 0.0,
+            "train/lr": scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else 0.0001
+        }
+    
     _= masks.pop("attention_mask", None)
     # Forward pass with attention masks
 
     predicted_trajectories = model(encoded_batch, masks, attention_masks=attention_masks)
+    
+    # Check if forward pass was skipped due to empty sequences
+    if predicted_trajectories is None:
+        logger.warning("Skipping batch due to empty sequences detected in forward pass")
+        return {
+            "train/train_loss": 0.0,
+            "train/lr": scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else 0.0001
+        }
 
     # compute the loss
     model_without_ddp = model.module if hasattr(model, "module") else model

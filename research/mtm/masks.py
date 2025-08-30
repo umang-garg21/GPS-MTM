@@ -62,16 +62,16 @@ def create_random_mask(
         [1, 0], size=traj_length, p=[1 - mask_ratio, mask_ratio]
     )
     
-    # DEBUG: Print mask creation info
-    print(f"MASK CREATION DEBUG:")
-    print(f"  Mask ratio requested: {mask_ratio} (should be fraction of MASKED tokens)")
-    print(f"  Trajectory length: {traj_length}")
-    print(f"  Created mask - 1s (visible): {np.sum(random_mask)}")
-    print(f"  Created mask - 0s (masked): {np.sum(1 - random_mask)}")
-    print(f"  Actual MASKED ratio: {np.sum(1 - random_mask) / traj_length:.3f}")
-    print(f"  Actual VISIBLE ratio: {np.sum(random_mask) / traj_length:.3f}")
-    print(f"  First 20 mask values: {random_mask[:20]}")
-    print(f"  CONVENTION: 1=VISIBLE, 0=MASKED_TO_PREDICT")
+    # # DEBUG: Print mask creation info
+    # print(f"MASK CREATION DEBUG:")
+    # print(f"  Mask ratio requested: {mask_ratio} (should be fraction of MASKED tokens)")
+    # print(f"  Trajectory length: {traj_length}")
+    # print(f"  Created mask - 1s (visible): {np.sum(random_mask)}")
+    # print(f"  Created mask - 0s (masked): {np.sum(1 - random_mask)}")
+    # print(f"  Actual MASKED ratio: {np.sum(1 - random_mask) / traj_length:.3f}")
+    # print(f"  Actual VISIBLE ratio: {np.sum(random_mask) / traj_length:.3f}")
+    # print(f"  First 20 mask values: {random_mask[:20]}")
+    # print(f"  CONVENTION: 1=VISIBLE, 0=MASKED_TO_PREDICT")
     
     #import pdb; pdb.set_trace()
     if rnd_state is None:

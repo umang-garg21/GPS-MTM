@@ -55,6 +55,13 @@ def make_plots_with_masks(
         encoded_trajectories = tokenizer_manager.encode(trajectories)
         decoded_gt_trajectories = tokenizer_manager.decode(encoded_trajectories)
         predictions = predict_fn(encoded_trajectories, masks)
+        
+        # Handle case where predict_fn returns None due to empty sequences
+        if predictions is None:
+            eval_logs[f"{eval_name}/mse_sum"] = 0.0
+            eval_logs[f"{eval_name}/lower_bound_mse_sum"] = 0.0
+            continue
+            
         decoded_trajs = tokenizer_manager.decode(predictions)
 
         mse_loss = 0
@@ -185,6 +192,36 @@ class MTMConfig:
 class ClippedReLU(nn.Module):
     def forward(self, x):
         return torch.clamp(F.relu(x), max=1)  # ReLU ensures >=0, clamping restricts to <=1
+
+# Define Focal Loss for handling class imbalance
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1.0, gamma=2.0, reduction='none'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+    
+    def forward(self, inputs, targets):
+        """
+        Args:
+            inputs: (N, C, H, W) where C = number of classes
+            targets: (N, H, W) where each value is a class index
+        """
+        # Calculate cross entropy
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        
+        # Calculate p_t
+        pt = torch.exp(-ce_loss)
+        
+        # Calculate focal loss
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:  # 'none'
+            return focal_loss
     
 class MTM(nn.Module):
     def __init__(
@@ -336,7 +373,8 @@ class MTM(nn.Module):
 
             # import pdb; pdb.set_trace()
             if discrete_map[key]:
-                raw_loss = nn.CrossEntropyLoss(reduction="none")(
+                focal_loss = FocalLoss(alpha=0.5, gamma=1.0, reduction='none')
+                raw_loss = focal_loss(
                     pred.permute(0, 3, 1, 2), target.permute(0, 3, 1, 2)
                 ).unsqueeze(3)
             
@@ -526,9 +564,14 @@ class MTM(nn.Module):
         batched_masks = self.process_masks(trajectories, masks)
         embedded_trajectories = self.trajectory_encoding(trajectories, attention_masks)
         try:
-            encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
+            encoded_trajectories, ids_restore, keep_length, continue_flag = self.forward_encoder(
                 embedded_trajectories, batched_masks, attention_masks=attention_masks
             )
+            
+            # Check if we should skip this batch due to empty sequences
+            if continue_flag == 1:
+                return None
+                
         except Exception as e:
             print("Exception in forward encoder:")
             print("batched_masks", batched_masks['states'])
@@ -544,9 +587,13 @@ class MTM(nn.Module):
         batched_masks = self.process_masks(trajectories, masks)
         embedded_trajectories = self.trajectory_encoding(trajectories)
 
-        encoded_trajectories, ids_restore, keep_length = self.forward_encoder(
+        encoded_trajectories, ids_restore, keep_length, continue_flag = self.forward_encoder(
             embedded_trajectories, batched_masks)
 
+        # Check if we should skip this batch
+        if continue_flag == 1:
+            return None
+            
         return encoded_trajectories
 
     def forward_encoder(self, trajectories, masks, attention_masks=None):
@@ -577,7 +624,8 @@ class MTM(nn.Module):
                 print("NO UPDATED VISIBLE TOKENS, SKIPPING")
                 import traceback; traceback.print_exc()
                 # Skip this batch:::
-                continue
+                continue_flag=1
+                break
 
                 # If no attention masks, use the original mask but expand it to batch size
                 batch_mask = mask.repeat(traj.shape[0], 1)
@@ -586,6 +634,10 @@ class MTM(nn.Module):
             #stacked_attention_masks= attention_masks
             max_len[k]=max(keep_len[k])
             features.append(x)
+
+        # Check if we should skip this batch
+        if continue_flag == 1:
+            return None, None, None, continue_flag
 
         feats=[]
         src_key_padding_mask = []
@@ -628,7 +680,7 @@ class MTM(nn.Module):
             idx += v
             #print("b, v, encoded_trajectories[k].shape",b, v, encoded_trajectories[k].shape)
 
-        return encoded_trajectories, ids_restore, keep_len
+        return encoded_trajectories, ids_restore, keep_len, continue_flag
 
     def _decoder_trajectory_encoding(self, trajectories) -> Dict[str, torch.Tensor]:
         encoded_trajectories = {}
@@ -742,7 +794,11 @@ class MTM(nn.Module):
         trajectories_copy = {k: torch.clone(v) for k, v in trajectories.items()}
 
         if ratio == 1.0:
-            return self(trajectories_copy, masks_copy)
+            result = self(trajectories_copy, masks_copy)
+            # Handle case where forward returns None due to empty sequences
+            if result is None:
+                return None
+            return result
 
         num_choose = int(
             ratio
@@ -761,6 +817,9 @@ class MTM(nn.Module):
 
         while not masks_filled(masks_copy):
             traj_predictions = self(trajectories_copy, masks_copy)
+            # Handle case where forward returns None due to empty sequences
+            if traj_predictions is None:
+                return None
             # sample from the logits
             for k, traj_logits in traj_predictions.items():
                 B, L, I, _ = traj_logits.shape

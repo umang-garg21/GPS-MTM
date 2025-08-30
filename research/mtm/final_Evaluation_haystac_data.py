@@ -18,7 +18,7 @@ from sklearn.metrics import accuracy_score  # Only using accuracy_score for top 
 # from sklearn.metrics import f1_score, precision_score, recall_score, classification_report  # Commented out - not needed for top 3
 import numpy as np
 
-main_folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/test_haystac/2025-08-28_22-02-06/test_outputs/random_masking_0.5_testing/"
+main_folder="/data/home/umang/Trajectory_project/GPS-MTM/outputs/test_haystac/2025-08-29_10-52-08/test_outputs/random_masking_0.15_testing/"
 
 for folder in os.listdir(main_folder):
     folder_path = os.path.join(main_folder, folder)

@@ -15,27 +15,31 @@ CUDA_VISIBLE_DEVICES=0 python research/mtm/train.py \
     ++args.mask_patterns=["RANDOM","GOAL","ID","FD"]
 
 # TRAIN ON URBAN ANOMALIES ATLANTA DATA
-CUDA_VISIBLE_DEVICES=1 python research/mtm/train.py \
+CUDA_VISIBLE_DEVICES=2 python research/mtm/train.py \
     +exp_traj=traj_cont_statediscrete_actcont \
     ++datasets.env_name="gps_traj_masked_modelling" \
-    ++datasets.replay_buffer_dir="/data/home/umang/Trajectory_project/anomaly_traj_data/urban_anomalies/centralized/atlanta_hunger_outliers/saved_agent_episodes_new/obs4_act11" \
+    ++datasets.replay_buffer_dir="/data/home/umang/Trajectory_project/anomaly_traj_data/urban_anomalies/centralized/atlanta_combined_outliers/saved_agent_episodes_new/obs4_act11" \
     ++args.traj_length="278"\
-    ++hydra.job.name="train_UA_atlanta_hunger_outliers" \
-    ++datasets.train_val_split=0.8 \
+    ++hydra.job.name="train_UA_atlanta_combined_outliers" \
+    ++datasets.train_val_split=0.7 \
     ++tokenizers.states.num_classes="4"\
-    ++args.batch_size="32"
+    ++args.batch_size="1" \
+    ++args.mask_ratios=[0.1,0.15,0.2,0.3,0.4,0.5,0.6] \
+    ++args.mask_patterns=["RANDOM","GOAL","ID","FD"]
 
 
 # TRAIN ON URBAN ANOMALIES BERLIN DATA 
-CUDA_VISIBLE_DEVICES=6 python research/mtm/train.py \
+CUDA_VISIBLE_DEVICES=7 python research/mtm/train.py \
     +exp_traj=traj_cont_statediscrete_actcont \
     ++datasets.env_name="gps_traj_masked_modelling" \
     ++datasets.replay_buffer_dir="/data/home/umang/Trajectory_project/anomaly_traj_data/urban_anomalies/centralized/berlin_work_outliers/saved_agent_episodes_new/obs4_act11" \
     ++args.traj_length="266" \
     ++hydra.job.name="train_UA_berlin_work_outliers" \
-    ++datasets.train_val_split=0.8 \
+    ++datasets.train_val_split=0.7 \
     ++tokenizers.states.num_classes="4"\
-    ++args.batch_size="32"
+    ++args.batch_size="32" \
+    ++args.mask_ratios=[0.1,0.15,0.2,0.3,0.4,0.5,0.6] \
+    ++args.mask_patterns=["RANDOM","GOAL","ID","FD"]
 
 
 # TRAIN ON GEOLIFE
